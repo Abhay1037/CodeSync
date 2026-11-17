@@ -68,6 +68,63 @@ export function useCollaboration() {
     });
   }, []);
 
+  /** Sync the server-owned panel map after a delete/rename repair. */
+  const applyPanelFiles = useCallback((nextPanelFiles) => {
+    const merged = {
+      [PANELS.LEFT]: nextPanelFiles?.[PANELS.LEFT] ?? null,
+      [PANELS.RIGHT]: nextPanelFiles?.[PANELS.RIGHT] ?? null,
+    };
+    const prev = panelFilesRef.current;
+    panelFilesRef.current = merged;
+    setPanelFiles(merged);
+
+    // Panels that switched file need the new file's content in `code`.
+    setCode((current) => {
+      const next = { ...current };
+      for (const panel of [PANELS.LEFT, PANELS.RIGHT]) {
+        if (prev[panel] === merged[panel]) continue;
+        const file = filesRef.current.find((entry) => entry.id === merged[panel]);
+        next[panel] = file?.content ?? '';
+      }
+      return next;
+    });
+
+    // A caret is meaningless once its panel shows a different file.
+    setRemoteCursors((prevCursors) => {
+      const next = { ...prevCursors };
+      for (const panel of [PANELS.LEFT, PANELS.RIGHT]) {
+        if (prev[panel] !== merged[panel]) delete next[panel];
+      }
+      return next;
+    });
+  }, []);
+
+  /** Emit a file action that expects an ack (rename/delete). */
+  const requestFileAction = useCallback(
+    (event, payload) =>
+      new Promise((resolve) => {
+        if (!socket.connected || !roleRef.current) {
+          resolve({ ok: false, error: 'Not connected to the room.' });
+          return;
+        }
+
+        let settled = false;
+        const timer = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          resolve({ ok: false, error: 'Server did not respond. Try again.' });
+        }, 10000);
+
+        socket.emit(event, payload, (res) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          resolve(res ?? { ok: false, error: 'Unexpected server response.' });
+        });
+      }),
+    []
+  );
+
   /** Emit the join request and fold the server response into state. */
   const joinRequest = useCallback(() => {
     const id = roomIdRef.current;
@@ -151,6 +208,17 @@ export function useCollaboration() {
       // The creator's panel now points at the new file, so mirror it here too.
       commitPanelFile(panel, file.id, file.content ?? '');
     }
+    function onFileRenamed({ file, panelFiles: nextPanelFiles }) {
+      if (!file?.id) return;
+      commitFiles(
+        filesRef.current.map((entry) => (entry.id === file.id ? { ...entry, ...file } : entry))
+      );
+      if (nextPanelFiles) applyPanelFiles(nextPanelFiles);
+    }
+    function onFileDeleted({ fileId, panelFiles: nextPanelFiles }) {
+      commitFiles(filesRef.current.filter((entry) => entry.id !== fileId));
+      applyPanelFiles(nextPanelFiles ?? {});
+    }
     function onUsersUpdate({ users: nextUsers }) {
       setUsers(nextUsers);
       // Drop carets belonging to users who just left.
@@ -180,6 +248,8 @@ export function useCollaboration() {
     socket.on(EVENTS.CODE_UPDATE, onCodeUpdate);
     socket.on(EVENTS.FILE_OPENED, onFileOpened);
     socket.on(EVENTS.FILE_CREATED, onFileCreated);
+    socket.on(EVENTS.FILE_RENAMED, onFileRenamed);
+    socket.on(EVENTS.FILE_DELETED, onFileDeleted);
     socket.on(EVENTS.USERS_UPDATE, onUsersUpdate);
     socket.on(EVENTS.CURSOR_UPDATE, onCursorUpdate);
     socket.on(EVENTS.ROOM_FULL, onRoomFull);
@@ -192,12 +262,14 @@ export function useCollaboration() {
       socket.off(EVENTS.CODE_UPDATE, onCodeUpdate);
       socket.off(EVENTS.FILE_OPENED, onFileOpened);
       socket.off(EVENTS.FILE_CREATED, onFileCreated);
+      socket.off(EVENTS.FILE_RENAMED, onFileRenamed);
+      socket.off(EVENTS.FILE_DELETED, onFileDeleted);
       socket.off(EVENTS.USERS_UPDATE, onUsersUpdate);
       socket.off(EVENTS.CURSOR_UPDATE, onCursorUpdate);
       socket.off(EVENTS.ROOM_FULL, onRoomFull);
       socket.off(EVENTS.ERROR_MESSAGE, onErrorMessage);
     };
-  }, [joinRequest, commitFiles, commitPanelFile]);
+  }, [joinRequest, commitFiles, commitPanelFile, applyPanelFiles]);
 
   /** Connect (if needed) and join a room, resolving the assigned panel. */
   const join = useCallback(
@@ -297,6 +369,46 @@ export function useCollaboration() {
   );
 
   /**
+   * Rename (re-path) a shared file. The file id is stable, so panels, live
+   * code and cursors survive the rename untouched.
+   */
+  const renameFile = useCallback(
+    async (fileId, path) => {
+      const res = await requestFileAction(EVENTS.FILE_RENAME, { fileId, path });
+      if (!res.ok) {
+        return { ok: false, error: res.message ?? 'Could not rename the file.' };
+      }
+
+      const file = res.file;
+      if (file?.id) {
+        commitFiles(
+          filesRef.current.map((entry) => (entry.id === file.id ? { ...entry, ...file } : entry))
+        );
+      }
+      if (res.panelFiles) applyPanelFiles(res.panelFiles);
+
+      return { ok: true, file };
+    },
+    [applyPanelFiles, commitFiles, requestFileAction]
+  );
+
+  /** Delete a shared file; the server re-points panels that had it open. */
+  const deleteFile = useCallback(
+    async (fileId) => {
+      const res = await requestFileAction(EVENTS.FILE_DELETE, { fileId });
+      if (!res.ok) {
+        return { ok: false, error: res.message ?? 'Could not delete the file.' };
+      }
+
+      commitFiles(filesRef.current.filter((entry) => entry.id !== fileId));
+      applyPanelFiles(res.panelFiles ?? {});
+
+      return { ok: true };
+    },
+    [applyPanelFiles, commitFiles, requestFileAction]
+  );
+
+  /**
    * Apply a local edit.
    * Updates UI immediately (optimistic) and, only when the edited panel is
    * OURS, forwards it to the server. The read-only panel never emits.
@@ -366,6 +478,8 @@ export function useCollaboration() {
     join,
     leave,
     createFile,
+    renameFile,
+    deleteFile,
     openFile,
     updateCode,
     emitCursor,

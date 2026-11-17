@@ -187,13 +187,63 @@ export function createFile({ roomId, file }) {
   const room = rooms.get(roomId);
   if (!room) return { ok: false, reason: 'NOT_IN_ROOM' };
 
+  // Paths (not ids) must be unique: renaming keeps the stable id, so the id
+  // alone can no longer be used as the uniqueness key.
   const duplicate = room.files.some(
-    (entry) => entry.id.toLowerCase() === file.id.toLowerCase()
+    (entry) => String(entry.path ?? entry.id).toLowerCase() === String(file.path).toLowerCase()
   );
   if (duplicate) return { ok: false, reason: 'FILE_EXISTS' };
 
   room.files.push({ ...file });
   return { ok: true, room, file: room.files[room.files.length - 1] };
+}
+
+/**
+ * Re-path a file. The `id` stays stable (panels and live code keep pointing at
+ * it); only the display path/name/folder/language change.
+ */
+export function renameFile({ roomId, fileId, next }) {
+  const room = rooms.get(roomId);
+  if (!room) return { ok: false, reason: 'NOT_IN_ROOM' };
+
+  const file = room.files.find((entry) => entry.id === fileId);
+  if (!file) return { ok: false, reason: 'UNKNOWN_FILE' };
+
+  const clash = room.files.some(
+    (entry) =>
+      entry.id !== fileId &&
+      String(entry.path ?? entry.id).toLowerCase() === String(next.path).toLowerCase()
+  );
+  if (clash) return { ok: false, reason: 'FILE_EXISTS' };
+
+  file.path = next.path;
+  file.name = next.name;
+  file.folder = next.folder;
+  file.language = next.language;
+
+  return { ok: true, room, file };
+}
+
+/**
+ * Remove a file and repair any panel that had it open (falls back to another
+ * existing file). Rooms always keep at least one file.
+ */
+export function deleteFile({ roomId, fileId }) {
+  const room = rooms.get(roomId);
+  if (!room) return { ok: false, reason: 'NOT_IN_ROOM' };
+  if (room.files.length <= 1) return { ok: false, reason: 'LAST_FILE' };
+
+  const index = room.files.findIndex((entry) => entry.id === fileId);
+  if (index === -1) return { ok: false, reason: 'UNKNOWN_FILE' };
+
+  const [removed] = room.files.splice(index, 1);
+
+  for (const panel of Object.values(PANELS)) {
+    if (room.panelFiles[panel] === fileId) room.panelFiles[panel] = null;
+    ensurePanelFile(room, panel);
+  }
+
+  return { ok: true, room, removed };
 }
 
 /** Apply an edit to a specific file. */

@@ -11,6 +11,8 @@ export const EVENTS = {
   ROOM_LEAVE: 'room:leave',
   FILE_CREATE: 'file:create',
   FILE_OPEN: 'file:open',
+  FILE_RENAME: 'file:rename',
+  FILE_DELETE: 'file:delete',
   CODE_CHANGE: 'code:change',
   CURSOR_UPDATE: 'cursor:update',
 
@@ -19,6 +21,8 @@ export const EVENTS = {
   ROOM_FULL: 'room:full',
   FILE_CREATED: 'file:created',
   FILE_OPENED: 'file:opened',
+  FILE_RENAMED: 'file:renamed',
+  FILE_DELETED: 'file:deleted',
   CODE_UPDATE: 'code:update',
   USERS_UPDATE: 'users:update',
 

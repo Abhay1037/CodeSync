@@ -46,7 +46,25 @@ function Chevron({ open }) {
   );
 }
 
-function TreeNode({ node, path, depth, collapsed, onToggle, panelFiles, role, onOpen }) {
+function TreeNode({
+  node,
+  path,
+  depth,
+  collapsed,
+  onToggle,
+  panelFiles,
+  role,
+  onOpen,
+  onStartRename,
+  onDelete,
+  editing,
+  renameDraft,
+  renameBusy,
+  onRenameDraft,
+  onSubmitRename,
+  onCancelRename,
+}) {
+  const canManage = Boolean(onStartRename && onDelete);
   const folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b));
   const sortedFiles = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -79,6 +97,14 @@ function TreeNode({ node, path, depth, collapsed, onToggle, panelFiles, role, on
                 panelFiles={panelFiles}
                 role={role}
                 onOpen={onOpen}
+                onStartRename={onStartRename}
+                onDelete={onDelete}
+                editing={editing}
+                renameDraft={renameDraft}
+                renameBusy={renameBusy}
+                onRenameDraft={onRenameDraft}
+                onSubmitRename={onSubmitRename}
+                onCancelRename={onCancelRename}
               />
             )}
           </li>
@@ -90,13 +116,54 @@ function TreeNode({ node, path, depth, collapsed, onToggle, panelFiles, role, on
         const isLeft = panelFiles[PANELS.LEFT] === file.id;
         const isRight = panelFiles[PANELS.RIGHT] === file.id;
 
+        if (editing === file.id) {
+          return (
+            <li key={file.id}>
+              <form
+                onSubmit={onSubmitRename}
+                className="py-1 pr-2"
+                style={{ paddingLeft: `${8 + depth * 12}px` }}
+              >
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(event) => onRenameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') onCancelRename();
+                  }}
+                  disabled={renameBusy}
+                  aria-label={`New path for ${file.path}`}
+                  className="w-full rounded-md border border-brand-500 bg-white px-2 py-1 font-mono text-[11px] text-slate-900 outline-none disabled:opacity-60"
+                />
+                <div className="mt-1 flex items-center gap-2 text-[10px]">
+                  <button
+                    type="submit"
+                    disabled={renameBusy}
+                    className="rounded bg-brand-600 px-2 py-0.5 font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
+                  >
+                    {renameBusy ? '…' : 'Save'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onCancelRename}
+                    disabled={renameBusy}
+                    className="text-slate-500 hover:text-slate-700 disabled:opacity-40"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </li>
+          );
+        }
+
         return (
-          <li key={file.id}>
+          <li key={file.id} className="group flex items-center">
             <button
               type="button"
               onClick={() => onOpen(file.id)}
               title={file.path}
-              className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition ${
+              className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition ${
                 isYours
                   ? 'bg-brand-100 text-brand-700'
                   : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-900'
@@ -127,6 +194,29 @@ function TreeNode({ node, path, depth, collapsed, onToggle, panelFiles, role, on
                 )}
               </span>
             </button>
+
+            {canManage && (
+              <span className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                <button
+                  type="button"
+                  onClick={() => onStartRename(file)}
+                  title={`Rename ${file.path}`}
+                  aria-label={`Rename ${file.path}`}
+                  className="rounded px-1 text-[11px] leading-5 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(file)}
+                  title={`Delete ${file.path}`}
+                  aria-label={`Delete ${file.path}`}
+                  className="rounded px-1 text-[11px] leading-5 text-slate-500 hover:bg-red-100 hover:text-red-600"
+                >
+                  🗑
+                </button>
+              </span>
+            )}
           </li>
         );
       })}
@@ -140,12 +230,24 @@ function TreeNode({ node, path, depth, collapsed, onToggle, panelFiles, role, on
  * Side rail that shows the room's shared file tree; clicking a file opens it
  * in the current user's own editor panel.
  */
-export default function FileExplorer({ files, panelFiles, role, onOpen, onCreate }) {
+export default function FileExplorer({
+  files,
+  panelFiles,
+  role,
+  onOpen,
+  onCreate,
+  onRename,
+  onDelete,
+}) {
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [creating, setCreating] = useState(false);
   const [draftPath, setDraftPath] = useState('');
   const [creatingBusy, setCreatingBusy] = useState(false);
   const [formError, setFormError] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
   const tree = useMemo(() => buildTree(files), [files]);
 
   const toggle = (path) => {
@@ -217,6 +319,75 @@ export default function FileExplorer({ files, panelFiles, role, onOpen, onCreate
   };
 
   const activeFile = files.find((file) => file.id === panelFiles[role]);
+  // Ignore a stale rename target (e.g. the file was deleted by the partner).
+  const editingFile = editingId && files.some((file) => file.id === editingId) ? editingId : null;
+
+  const startRename = (file) => {
+    if (!onRename) return;
+    setActionError('');
+    setEditingId(file.id);
+    setRenameDraft(file.path ?? file.name ?? file.id);
+  };
+
+  const cancelRename = () => {
+    if (renameBusy) return;
+    setEditingId(null);
+    setRenameDraft('');
+    setActionError('');
+  };
+
+  const submitRename = async (event) => {
+    event.preventDefault();
+    const nextPath = renameDraft.trim();
+    if (!nextPath || !onRename || !editingFile) return;
+
+    setRenameBusy(true);
+    setActionError('');
+    const result = await onRename(editingFile, nextPath);
+    setRenameBusy(false);
+
+    if (!result?.ok) {
+      setActionError(result?.error ?? 'Could not rename the file.');
+      return;
+    }
+
+    // Reveal the folder chain of the new path (like create does).
+    const parts = nextPath
+      .replace(/\\/g, '/')
+      .replace(/^\.?\/+/, '')
+      .split('/')
+      .filter(Boolean);
+    const ancestors = parts.slice(0, -1).map((_, index, arr) => arr.slice(0, index + 1).join('/'));
+    if (ancestors.length > 0) {
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        ancestors.forEach((ancestor) => next.delete(ancestor));
+        return next;
+      });
+    }
+
+    setEditingId(null);
+    setRenameDraft('');
+  };
+
+  const handleDelete = async (file) => {
+    if (!onDelete) return;
+    const confirmed = window.confirm(
+      `Delete "${file.path}"? This removes it for both editors.`
+    );
+    if (!confirmed) return;
+
+    setActionError('');
+    const result = await onDelete(file.id);
+    if (!result?.ok) {
+      setActionError(result?.error ?? 'Could not delete the file.');
+      return;
+    }
+    if (editingId === file.id) {
+      setEditingId(null);
+      setRenameDraft('');
+    }
+  };
 
   return (
     <aside className="flex min-h-0 w-full flex-col border-slate-200 bg-slate-50 lg:w-64 lg:border-r">
@@ -286,6 +457,11 @@ export default function FileExplorer({ files, panelFiles, role, onOpen, onCreate
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        {actionError && (
+          <p className="mx-1 mb-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+            {actionError}
+          </p>
+        )}
         {files.length === 0 ? (
           <p className="mt-6 px-2 text-center text-xs text-slate-500">
             No files in this room yet.
@@ -300,6 +476,14 @@ export default function FileExplorer({ files, panelFiles, role, onOpen, onCreate
             panelFiles={panelFiles}
             role={role}
             onOpen={onOpen}
+            onStartRename={onRename ? startRename : undefined}
+            onDelete={onDelete ? handleDelete : undefined}
+            editing={editingFile}
+            renameDraft={renameDraft}
+            renameBusy={renameBusy}
+            onRenameDraft={setRenameDraft}
+            onSubmitRename={submitRename}
+            onCancelRename={cancelRename}
           />
         )}
       </div>

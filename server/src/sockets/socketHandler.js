@@ -5,12 +5,14 @@ import {
 } from '../constants/events.js';
 import {
   createFile,
+  deleteFile,
   ensurePanelFile,
   findRoomBySocket,
   getRoom,
   hydrateRoom,
   joinRoom,
   leaveRoom,
+  renameFile,
   setPanelFile,
   updateFileContent,
 } from './roomStore.js';
@@ -211,6 +213,80 @@ export function registerSocketHandlers(io, socket) {
     socket.to(roomId).emit(EVENTS.FILE_CREATED, {
       file: { ...result.file },
       panel: user.role,
+      by: user.username,
+    });
+  });
+
+  /**
+   * FILE_RENAME: re-path a shared file. The stable `id` is preserved so live
+   * edits, panel mappings and cursors keep working across the rename.
+   */
+  socket.on(EVENTS.FILE_RENAME, (payload = {}, ack) => {
+    const roomId = findRoomBySocket(socket.id);
+    if (!roomId) return ack?.({ ok: false, reason: 'NOT_IN_ROOM' });
+
+    const room = getRoom(roomId);
+    const user = room?.users.get(socket.id);
+    if (!room || !user) return ack?.({ ok: false, reason: 'NOT_IN_ROOM' });
+
+    const fileId = String(payload.fileId ?? '');
+    const normalized = normalizeFilePath(payload.path);
+    if (!normalized.ok) {
+      socket.emit(EVENTS.ERROR_MESSAGE, { message: normalized.message });
+      return ack?.({ ok: false, reason: normalized.reason, message: normalized.message });
+    }
+
+    const result = renameFile({ roomId, fileId, next: normalized });
+    if (!result.ok) {
+      const message =
+        result.reason === 'FILE_EXISTS'
+          ? 'Another file already uses that path.'
+          : 'Could not rename that file.';
+      socket.emit(EVENTS.ERROR_MESSAGE, { message });
+      return ack?.({ ok: false, reason: result.reason, message });
+    }
+
+    const panelFiles = { ...room.panelFiles };
+    saveFilesDebounced(roomId, room.files, panelFiles);
+
+    ack?.({ ok: true, file: { ...result.file }, panelFiles });
+    socket.to(roomId).emit(EVENTS.FILE_RENAMED, {
+      file: { ...result.file },
+      panelFiles,
+      by: user.username,
+    });
+  });
+
+  /**
+   * FILE_DELETE: remove a shared file. Any panel showing it is re-pointed at
+   * a surviving file, and both editors are told the new panel mapping.
+   */
+  socket.on(EVENTS.FILE_DELETE, (payload = {}, ack) => {
+    const roomId = findRoomBySocket(socket.id);
+    if (!roomId) return ack?.({ ok: false, reason: 'NOT_IN_ROOM' });
+
+    const room = getRoom(roomId);
+    const user = room?.users.get(socket.id);
+    if (!room || !user) return ack?.({ ok: false, reason: 'NOT_IN_ROOM' });
+
+    const fileId = String(payload.fileId ?? '');
+    const result = deleteFile({ roomId, fileId });
+    if (!result.ok) {
+      const message =
+        result.reason === 'LAST_FILE'
+          ? 'A room must keep at least one file.'
+          : 'That file no longer exists.';
+      socket.emit(EVENTS.ERROR_MESSAGE, { message });
+      return ack?.({ ok: false, reason: result.reason, message });
+    }
+
+    const panelFiles = { ...room.panelFiles };
+    saveFilesDebounced(roomId, room.files, panelFiles);
+
+    ack?.({ ok: true, fileId, panelFiles });
+    socket.to(roomId).emit(EVENTS.FILE_DELETED, {
+      fileId,
+      panelFiles,
       by: user.username,
     });
   });

@@ -166,6 +166,8 @@ function Workspace({ roomId }) {
             role={role}
             onOpen={handleOpenFile}
             onCreate={handleCreateFile}
+            onRename={collab.renameFile}
+            onDelete={collab.deleteFile}
           />
         )}
 
