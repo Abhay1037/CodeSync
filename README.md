@@ -27,7 +27,7 @@ CodeSync/
 ├── server/                   # Express + Socket.io backend
 │   ├── package.json
 │   ├── .env.example
-│   └── src/
+│   ├── src/
 │       ├── server.js         # entry: HTTP server + Socket.io bootstrap
 │       ├── app.js            # Express app (middleware, routes, errors)
 │       ├── config/
@@ -55,6 +55,15 @@ CodeSync/
 │       └── sockets/
 │           ├── roomStore.js      # in-memory room registry (hot cache)
 │           └── socketHandler.js  # join / file-open / code-change + enforcement
+│
+│   └── tests/                # node:test + supertest + memory MongoDB
+│       ├── helpers/
+│       │   ├── db.js         # isolated in-memory Mongo per test file
+│       │   └── socket.js     # test server + socket client utilities
+│       ├── auth.test.js      # register / login / me / validation
+│       ├── rooms.test.js     # create / list / private read / owner delete
+│       ├── execute.test.js   # validation, JS runner, secret isolation
+│       └── files.test.js     # seating, restrictive editing, file CRUD
 │
 └── client/                   # React + Vite frontend
     ├── package.json
@@ -97,18 +106,22 @@ CodeSync/
 | Room join/leave | `room:join` / `room:leave`             | Seats two editors, rejects a third |
 | File explorer  | `file:open` / `file:opened`             | Each editor switches the file in their own panel |
 | Create file    | `file:create` / `file:created`          | New virtual files appear for both editors |
+| Rename file    | `file:rename` / `file:renamed`          | Stable file id: panels, cursors and live code survive |
+| Delete file    | `file:delete` / `file:deleted`          | Panels re-point to another file; a room keeps ≥ 1 file |
 | Code sync      | `code:change` / `code:update`           | Server-enforced panel + open-file ownership |
 | Live cursors   | `cursor:update`                         | Partner caret + username tag (Monaco decoration) |
 | Presence       | `users:update`                          | Coloured roster per panel |
 | Accounts       | JWT (Bearer)                           | Register/login; guests still joinable |
 | Persistence    | MongoDB (Mongoose)                     | Rooms + files survive restarts |
-| Dashboard      | `GET/POST /api/rooms`                  | Create/list rooms, deep-link by id |
+| Dashboard      | `GET/POST/DELETE /api/rooms`           | Create/list/delete rooms, deep-link by id |
 
 ## Persistence & Auth
 
 - **Auth**: bcrypt-hashed passwords + JWT (`POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`). JWT is attached to REST calls *and* the Socket.io handshake, so authenticated users are always identified by account.
 - **Guests**: no token? Still joinable by room id — the workspace just asks for a display name.
+- **Privacy**: `GET /api/rooms/:roomId` is member-only (owner + participants) and `DELETE /api/rooms/:roomId` is owner-only. Room ids are unguessable random hex, but still act as an invite token for the socket join — anyone holding the id can join.
 - **Persistence**: room files and each panel's open-file selection are written to MongoDB (file saves are debounced to one write per typing burst). Logged-in users get a "Your rooms" dashboard and room ownership.
+- **Idle cleanup**: rooms untouched for `ROOM_TTL_DAYS` (default 30, `0` disables) are pruned by a sweep that runs at boot and every 6 hours.
 - Set `MONGO_URI` (local or MongoDB Atlas) and a strong `JWT_SECRET` in `server/.env`.
 
 ## Code Execution
@@ -135,6 +148,23 @@ PISTON_URL=http://localhost:2000
 # PISTON_API_KEY=your-key
 ```
 
+### Local runner (development only)
+
+When Piston is unreachable, the backend can run code as a child process of
+itself. This is convenient for demos but **unsandboxed**, so it is disabled
+automatically when `NODE_ENV=production` (override with `ALLOW_LOCAL_EXEC`):
+
+| Language   | Needs on PATH                       |
+| ---------- | ----------------------------------- |
+| JavaScript | the Node.js you already installed   |
+| TypeScript | `npx` (fetches `tsx` on first run)  |
+| Python     | `python`                            |
+| Java       | `javac` + `java` (JDK 17+)          |
+| C++        | `g++` (e.g. `winget install BrechtSanders.WinLibs.POSIX.UCRT`) |
+
+Child processes receive a **whitelisted environment** (no `JWT_SECRET` /
+`MONGO_URI`) and output is capped at 64 KB.
+
 ## How Restrictive Editing Works
 
 1. A user joins a room. The server seats them in the first free panel:
@@ -144,7 +174,9 @@ PISTON_URL=http://localhost:2000
    `file:open`; the server updates only the sender's panel mapping and tells the
    other peer with `file:opened`. **+ New** emits `file:create`; the server
    validates the virtual path, adds the file, opens it in the creator's panel
-   and broadcasts `file:created` to the partner.
+   and broadcasts `file:created` to the partner. Hovering a file reveals
+   **✎ rename** and **🗑 delete**: renaming keeps the stable file id, while
+   deleting re-points any panel that had it open (a room always keeps one file).
 4. On every keystroke the client emits `code:change`; the server **verifies the
    sender owns that panel and that the file is the one open there** before
    persisting and broadcasting `code:update`. A tampered client cannot edit the
@@ -193,12 +225,16 @@ a file such as `src/components/Button.jsx`.
 | `npm run dev:server` | Backend only (`node --watch`)               |
 | `npm run dev:client` | Frontend only (Vite)                        |
 | `npm run build`    | Production build of the client                |
+| `npm test`         | Backend test suite (23 tests, in-memory DB)   |
 | `npm start`        | Start the backend in (production) mode         |
 
 ## Notes for Production
 
 - Replace the in-memory `roomStore` with **Redis** + the Socket.io Redis adapter
   to scale horizontally and survive restarts.
+- Keep local code execution OFF (`NODE_ENV=production` disables it by default)
+  and point `PISTON_URL` at an isolated runner.
 - Serve `client/dist` statically from Express (or a CDN) and point
   `VITE_SERVER_URL` at the deployed API.
-- Tighten `CLIENT_ORIGIN` to your real domains and add auth/rate-limiting.
+- Tighten `CLIENT_ORIGIN` to your real domains and add auth/rate-limiting on
+  `/api/auth/*` and `/api/execute`.

@@ -65,12 +65,21 @@ function appendCapped(current, chunk) {
   return `${next.slice(0, MAX_OUTPUT_CHARS)}\n…(output truncated)`;
 }
 
+/** Turn a bare ENOENT into an actionable "install this" message. */
+function spawnErrorMessage(err, tool) {
+  if (err?.code === 'ENOENT') {
+    return `${tool} was not found on PATH. Install it, or run code through Piston.`;
+  }
+  return err.message;
+}
+
 function runLocal({ language, code, stdin = '' }) {
   return new Promise((resolve) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codesync-'));
     let filePath;
     let cmd;
     let args = [];
+    let toolName = 'the interpreter';
 
     try {
       if (language === 'javascript') {
@@ -78,9 +87,11 @@ function runLocal({ language, code, stdin = '' }) {
         fs.writeFileSync(filePath, code);
         cmd = process.execPath;
         args = [filePath];
+        toolName = 'node';
       } else if (language === 'typescript') {
         filePath = path.join(tmpDir, 'main.ts');
         fs.writeFileSync(filePath, code);
+        toolName = 'npx/tsx';
         // `npx` ships as a .cmd shim on Windows, so it needs cmd.exe to run.
         if (process.platform === 'win32') {
           cmd = process.env.ComSpec || 'cmd.exe';
@@ -108,6 +119,7 @@ function runLocal({ language, code, stdin = '' }) {
         fs.writeFileSync(filePath, code);
         cmd = 'python';
         args = [filePath];
+        toolName = 'python';
       } else if (language === 'java') {
         // Try to extract public class name
         let className = 'Main';
@@ -152,19 +164,20 @@ function runLocal({ language, code, stdin = '' }) {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });
             } catch {}
-            resolve({ ok: false, error: err.message });
+            resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
           });
         });
         compile.on('error', (err) => {
           try {
             fs.rmSync(tmpDir, { recursive: true, force: true });
           } catch {}
-          resolve({ ok: false, error: err.message });
+          resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
         });
         return;
       } else if (language === 'cpp') {
         filePath = path.join(tmpDir, 'main.cpp');
         fs.writeFileSync(filePath, code);
+        toolName = 'g++';
         const compile = spawn('g++', ['-O2', '-o', 'main', filePath], {
           cwd: tmpDir,
           timeout: 20000,
@@ -199,14 +212,14 @@ function runLocal({ language, code, stdin = '' }) {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });
             } catch {}
-            resolve({ ok: false, error: err.message });
+            resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
           });
         });
         compile.on('error', (err) => {
           try {
             fs.rmSync(tmpDir, { recursive: true, force: true });
           } catch {}
-          resolve({ ok: false, error: err.message });
+          resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
         });
         return;
       } else {
@@ -252,13 +265,13 @@ function runLocal({ language, code, stdin = '' }) {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch {}
-        resolve({ ok: false, error: err.message });
+        resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
       });
     } catch (err) {
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch {}
-      resolve({ ok: false, error: err.message });
+      resolve({ ok: false, error: spawnErrorMessage(err, toolName) });
     }
   });
 }
@@ -293,11 +306,13 @@ executeRouter.post('/execute', async (req, res, next) => {
     }
 
     // Try local execution first for supported languages (development only).
+    let localError = null;
     if (env.allowLocalExec && LOCAL_RUNNABLE.has(language)) {
       const local = await runLocal({ language, code, stdin });
       if (local.ok) {
         return res.json(local);
       }
+      localError = local.error ?? null;
       // fall through to try Piston if local failed
     }
 
@@ -329,7 +344,11 @@ executeRouter.post('/execute', async (req, res, next) => {
         if (local.ok) return res.json(local);
         return res.status(502).json({ error: local.error || fetchErr.message });
       }
-      return res.status(502).json({ error: fetchErr.message });
+      return res.status(502).json({
+        error: `Code runner unreachable (${fetchErr.message}).${
+          localError ? ` Local compiler said: ${localError}` : ''
+        }`,
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -343,7 +362,9 @@ executeRouter.post('/execute', async (req, res, next) => {
         if (local.ok) return res.json(local);
       }
       return res.status(502).json({
-        error: `Code runner responded with ${upstream.status}${errText ? `: ${errText.slice(0, 200)}` : '.'}`,
+        error: `Code runner responded with ${upstream.status}${errText ? `: ${errText.slice(0, 200)}` : '.'}${
+          localError ? ` Local compiler said: ${localError}` : ''
+        }`,
       });
     }
 
