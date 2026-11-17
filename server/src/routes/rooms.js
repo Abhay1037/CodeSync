@@ -2,12 +2,17 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { requireAuth } from '../middleware/auth.js';
 import {
+  deleteRoom,
   ensureRoom,
+  getRoomAccess,
   getRoomState,
   listRoomsForUser,
 } from '../services/roomService.js';
 
 export const roomsRouter = Router();
+
+/** Room ids end up in URLs, so keep them to a friendly character set. */
+const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{3,64}$/;
 
 /** Compact, URL-safe room id (8 hex chars). */
 function generateRoomId() {
@@ -39,7 +44,12 @@ roomsRouter.get('/rooms', requireAuth, async (req, res, next) => {
 /** POST /api/rooms - create a room (owner = current user). */
 roomsRouter.post('/rooms', requireAuth, async (req, res, next) => {
   try {
-    const requested = String(req.body?.roomId ?? '').trim().slice(0, 64);
+    const requested = String(req.body?.roomId ?? '').trim();
+    if (requested && !ROOM_ID_PATTERN.test(requested)) {
+      return res.status(400).json({
+        error: 'Room id must be 3-64 characters: letters, numbers, dashes or underscores.',
+      });
+    }
     const roomId = requested || generateRoomId();
 
     const existing = await getRoomState(roomId);
@@ -59,9 +69,18 @@ roomsRouter.post('/rooms', requireAuth, async (req, res, next) => {
   }
 });
 
-/** GET /api/rooms/:roomId - public room state (used to preview / deep-link). */
-roomsRouter.get('/rooms/:roomId', async (req, res, next) => {
+/**
+ * GET /api/rooms/:roomId - full room state.
+ * Private: only the owner and joined participants may read a room's files.
+ */
+roomsRouter.get('/rooms/:roomId', requireAuth, async (req, res) => {
   try {
+    const access = await getRoomAccess(req.params.roomId, req.user._id);
+    if (!access.found) return res.status(404).json({ error: 'Room not found.' });
+    if (!access.member) {
+      return res.status(403).json({ error: 'You are not a member of this room.' });
+    }
+
     const room = await getRoomState(req.params.roomId);
     if (!room) return res.status(404).json({ error: 'Room not found.' });
 
@@ -72,6 +91,23 @@ roomsRouter.get('/rooms/:roomId', async (req, res, next) => {
         panelFiles: room.panelFiles ?? { left: null, right: null },
       },
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** DELETE /api/rooms/:roomId - owner-only room deletion. */
+roomsRouter.delete('/rooms/:roomId', requireAuth, async (req, res, next) => {
+  try {
+    const room = await getRoomState(req.params.roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found.' });
+
+    if (!room.owner || String(room.owner) !== String(req.user._id)) {
+      return res.status(403).json({ error: 'Only the room owner can delete it.' });
+    }
+
+    await deleteRoom(req.params.roomId);
+    return res.json({ ok: true, roomId: req.params.roomId });
   } catch (err) {
     return next(err);
   }

@@ -39,6 +39,8 @@ export const apiListRooms = () => request('/api/rooms');
 export const apiCreateRoom = (payload = {}) =>
   request('/api/rooms', { method: 'POST', body: payload });
 export const apiGetRoom = (roomId) => request(`/api/rooms/${roomId}`);
+export const apiDeleteRoom = (roomId) =>
+  request(`/api/rooms/${roomId}`, { method: 'DELETE' });
 
 // --- Code execution -------------------------------------------------------
 export async function executeCode({ language, code, stdin = '' }) {

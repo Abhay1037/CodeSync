@@ -7,7 +7,7 @@ import { corsOptions } from './config/cors.js';
 import { connectDB, disconnectDB } from './db/connect.js';
 import { User } from './models/User.js';
 import { verifyToken } from './services/authService.js';
-import { flushPending } from './services/roomService.js';
+import { flushPending, cleanupStaleRooms } from './services/roomService.js';
 import { registerSocketHandlers } from './sockets/socketHandler.js';
 
 /**
@@ -81,6 +81,29 @@ httpServer.listen(env.port, () => {
   console.log(`[server] CodeSync running on http://localhost:${env.port}`);
   console.log(`[server] allowed origins: ${env.clientOrigins.join(', ')}`);
 });
+
+// --- Idle-room cleanup --------------------------------------------------
+// Rooms are persisted forever by default, which slowly fills the collection.
+// Sweep once shortly after boot and then every 6 hours.
+if (env.roomTtlDays > 0) {
+  const runCleanup = async () => {
+    try {
+      const removed = await cleanupStaleRooms(env.roomTtlDays);
+      if (removed > 0) {
+        console.log(
+          `[cleanup] removed ${removed} idle room(s) inactive for ${env.roomTtlDays}+ days`
+        );
+      }
+    } catch (err) {
+      console.error('[cleanup] failed:', err.message);
+    }
+  };
+
+  const timer = setInterval(runCleanup, 6 * 60 * 60 * 1000);
+  timer.unref?.();
+  const firstRun = setTimeout(runCleanup, 15000);
+  firstRun.unref?.();
+}
 
 // --- Graceful shutdown --------------------------------------------------
 // Close sockets + HTTP server cleanly on Ctrl+C / container stop, flushing

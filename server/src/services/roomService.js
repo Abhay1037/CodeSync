@@ -56,6 +56,34 @@ export async function listRoomsForUser(userId) {
     .lean();
 }
 
+/**
+ * Membership check for a room. Rooms are only readable by their owner and the
+ * people who have joined them (room ids are unguessable, but not a secret).
+ */
+export async function getRoomAccess(roomId, userId) {
+  const room = await Room.findOne({ roomId }).select('owner participants').lean();
+  if (!room) return { found: false, member: false };
+
+  const uid = String(userId ?? '');
+  const member =
+    (room.owner && String(room.owner) === uid) ||
+    (room.participants ?? []).some((id) => String(id) === uid);
+
+  return { found: true, member };
+}
+
+/** Delete a room document (owner only - enforced by the caller). */
+export async function deleteRoom(roomId) {
+  return Room.deleteOne({ roomId });
+}
+
+/** Remove rooms that have been idle longer than `maxAgeDays`. */
+export async function cleanupStaleRooms(maxAgeDays) {
+  const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+  const result = await Room.deleteMany({ lastActiveAt: { $lt: cutoff } });
+  return result.deletedCount ?? 0;
+}
+
 export async function addParticipant(roomId, userId) {
   if (!userId) return;
   await Room.updateOne({ roomId }, { $addToSet: { participants: userId } });

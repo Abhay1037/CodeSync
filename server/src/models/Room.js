@@ -30,7 +30,7 @@ const roomSchema = new mongoose.Schema(
       right: { type: String, default: null },
     },
     participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-    lastActiveAt: { type: Date, default: Date.now },
+    lastActiveAt: { type: Date, default: Date.now, index: true },
   },
   { timestamps: true }
 );

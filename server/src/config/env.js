@@ -50,6 +50,12 @@ export const env = {
 
   /** How long to debounce room-code persistence to MongoDB (ms). */
   persistDebounceMs: Number(process.env.PERSIST_DEBOUNCE_MS) || 1200,
+
+  /**
+   * Idle rooms older than this are deleted from MongoDB by a periodic sweep.
+   * Set to 0 to disable cleanup entirely.
+   */
+  roomTtlDays: Number(process.env.ROOM_TTL_DAYS ?? 30),
 };
 
 export const isProduction = env.nodeEnv === 'production';

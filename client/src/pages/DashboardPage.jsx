@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
-import { apiCreateRoom, apiListRooms } from '../lib/api.js';
+import { apiCreateRoom, apiDeleteRoom, apiListRooms } from '../lib/api.js';
 import { socket } from '../lib/socket.js';
 
 /**
@@ -55,6 +55,21 @@ export default function DashboardPage() {
     event.preventDefault();
     const id = joinId.trim();
     if (id) navigate(`/room/${id}`);
+  };
+
+  const handleDeleteRoom = async (room) => {
+    const confirmed = window.confirm(
+      `Delete room "${room.roomId}"? Its files will be removed for everyone.`
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    try {
+      await apiDeleteRoom(room.roomId);
+      setRooms((prev) => prev.filter((entry) => entry.roomId !== room.roomId));
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   const handleLogout = () => {
@@ -160,10 +175,10 @@ export default function DashboardPage() {
               ) : (
                 <ul className="space-y-2">
                   {rooms.map((room) => (
-                    <li key={room.roomId}>
+                    <li key={room.roomId} className="flex items-stretch gap-2">
                       <button
                         onClick={() => navigate(`/room/${room.roomId}`)}
-                        className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-brand-500/50 shadow-sm"
+                        className="flex flex-1 items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-brand-500/50"
                       >
                         <div>
                           <p className="font-mono text-sm text-slate-900">
@@ -181,6 +196,15 @@ export default function DashboardPage() {
                         </div>
                         <span className="text-xs text-brand-600">Open →</span>
                       </button>
+                      {room.owner === user.id && (
+                        <button
+                          onClick={() => handleDeleteRoom(room)}
+                          title={`Delete room ${room.roomId}`}
+                          className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-medium text-red-700 transition hover:bg-red-100"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
