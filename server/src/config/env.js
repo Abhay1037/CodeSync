@@ -30,6 +30,17 @@ export const env = {
   /** Optional bearer token for authenticated/self-hosted runners. */
   pistonApiKey: process.env.PISTON_API_KEY ?? '',
 
+  /**
+   * Local execution runs user code as a child process of the API server, so it
+   * is a DEVELOPMENT-ONLY convenience (no sandbox, no resource isolation).
+   * It defaults to on outside production and can be forced with
+   * ALLOW_LOCAL_EXEC=true|false. Production deployments should use Piston.
+   */
+  allowLocalExec:
+    process.env.ALLOW_LOCAL_EXEC != null
+      ? process.env.ALLOW_LOCAL_EXEC === 'true'
+      : (process.env.NODE_ENV ?? 'development') !== 'production',
+
   /** MongoDB connection string (local by default; use Atlas in production). */
   mongoUri: process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/codesync',
 

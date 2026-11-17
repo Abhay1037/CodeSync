@@ -22,7 +22,48 @@ const PISTON_LANGUAGE = {
   cpp: 'c++',
 };
 
+/** Languages the local (unsandboxed, dev-only) runner can execute. */
+const LOCAL_RUNNABLE = new Set(['javascript', 'typescript', 'python', 'java', 'cpp']);
+
 const MAX_CODE_BYTES = 100_000;
+/** Keep runaway programs from exhausting the server's memory. */
+const MAX_OUTPUT_CHARS = 64 * 1024;
+
+/**
+ * Minimal environment for child processes.
+ *
+ * SECURITY: never forward `process.env` here. It contains JWT_SECRET,
+ * MONGO_URI (often with an Atlas password) and other secrets that a user
+ * could dump with `console.log(process.env)`.
+ */
+function childEnv() {
+  const allow = [
+    'PATH',
+    'PATHEXT',
+    'SystemRoot',
+    'windir',
+    'TEMP',
+    'TMP',
+    'HOME',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'NUMBER_OF_PROCESSORS',
+  ];
+  const out = {};
+  for (const key of allow) {
+    if (process.env[key] != null) out[key] = process.env[key];
+  }
+  return out;
+}
+
+/** Append a chunk while respecting the output cap. */
+function appendCapped(current, chunk) {
+  if (current.length >= MAX_OUTPUT_CHARS) return current;
+  const next = current + chunk;
+  if (next.length <= MAX_OUTPUT_CHARS) return next;
+  return `${next.slice(0, MAX_OUTPUT_CHARS)}\n…(output truncated)`;
+}
 
 function runLocal({ language, code, stdin = '' }) {
   return new Promise((resolve) => {
@@ -40,8 +81,14 @@ function runLocal({ language, code, stdin = '' }) {
       } else if (language === 'typescript') {
         filePath = path.join(tmpDir, 'main.ts');
         fs.writeFileSync(filePath, code);
-        cmd = 'npx';
-        args = ['-y', 'tsx', filePath];
+        // `npx` ships as a .cmd shim on Windows, so it needs cmd.exe to run.
+        if (process.platform === 'win32') {
+          cmd = process.env.ComSpec || 'cmd.exe';
+          args = ['/d', '/s', '/c', `npx -y tsx "${filePath}"`];
+        } else {
+          cmd = 'npx';
+          args = ['-y', 'tsx', filePath];
+        }
       } else if (language === 'html') {
         try {
           fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -72,9 +119,9 @@ function runLocal({ language, code, stdin = '' }) {
         }
         filePath = path.join(tmpDir, `${className}.java`);
         fs.writeFileSync(filePath, code);
-        const compile = spawn('javac', [filePath], { cwd: tmpDir, timeout: 15000 });
+        const compile = spawn('javac', [filePath], { cwd: tmpDir, timeout: 15000, env: childEnv() });
         let cerr = '';
-        compile.stderr.on('data', (d) => (cerr += d.toString()));
+        compile.stderr.on('data', (d) => (cerr = appendCapped(cerr, d.toString())));
         compile.on('close', (c) => {
           if (c !== 0) {
             try {
@@ -82,15 +129,19 @@ function runLocal({ language, code, stdin = '' }) {
             } catch {}
             return resolve({ ok: false, error: cerr || 'Java compilation failed.' });
           }
-          const runProc = spawn('java', ['-cp', tmpDir, className], { cwd: tmpDir, timeout: 15000 });
+          const runProc = spawn('java', ['-cp', tmpDir, className], {
+            cwd: tmpDir,
+            timeout: 15000,
+            env: childEnv(),
+          });
           let stdout = '';
           let stderr = '';
           if (stdin) {
             runProc.stdin.write(String(stdin));
             runProc.stdin.end();
           }
-          runProc.stdout.on('data', (d) => (stdout += d.toString()));
-          runProc.stderr.on('data', (d) => (stderr += d.toString()));
+          runProc.stdout.on('data', (d) => (stdout = appendCapped(stdout, d.toString())));
+          runProc.stderr.on('data', (d) => (stderr = appendCapped(stderr, d.toString())));
           runProc.on('close', (rc, sig) => {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -114,9 +165,13 @@ function runLocal({ language, code, stdin = '' }) {
       } else if (language === 'cpp') {
         filePath = path.join(tmpDir, 'main.cpp');
         fs.writeFileSync(filePath, code);
-        const compile = spawn('g++', ['-O2', '-o', 'main', filePath], { cwd: tmpDir, timeout: 20000 });
+        const compile = spawn('g++', ['-O2', '-o', 'main', filePath], {
+          cwd: tmpDir,
+          timeout: 20000,
+          env: childEnv(),
+        });
         let cerr = '';
-        compile.stderr.on('data', (d) => (cerr += d.toString()));
+        compile.stderr.on('data', (d) => (cerr = appendCapped(cerr, d.toString())));
         compile.on('close', (c) => {
           if (c !== 0) {
             try {
@@ -125,15 +180,15 @@ function runLocal({ language, code, stdin = '' }) {
             return resolve({ ok: false, error: cerr || 'C++ compilation failed.' });
           }
           const exe = process.platform === 'win32' ? path.join(tmpDir, 'main.exe') : path.join(tmpDir, 'main');
-          const runProc = spawn(exe, [], { cwd: tmpDir, timeout: 15000 });
+          const runProc = spawn(exe, [], { cwd: tmpDir, timeout: 15000, env: childEnv() });
           let stdout = '';
           let stderr = '';
           if (stdin) {
             runProc.stdin.write(String(stdin));
             runProc.stdin.end();
           }
-          runProc.stdout.on('data', (d) => (stdout += d.toString()));
-          runProc.stderr.on('data', (d) => (stderr += d.toString()));
+          runProc.stdout.on('data', (d) => (stdout = appendCapped(stdout, d.toString())));
+          runProc.stderr.on('data', (d) => (stderr = appendCapped(stderr, d.toString())));
           runProc.on('close', (rc, sig) => {
             try {
               fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -160,7 +215,7 @@ function runLocal({ language, code, stdin = '' }) {
 
       const proc = spawn(cmd, args, {
         cwd: tmpDir,
-        env: { ...process.env },
+        env: childEnv(),
         timeout: 10000,
       });
 
@@ -172,10 +227,10 @@ function runLocal({ language, code, stdin = '' }) {
       }
 
       proc.stdout.on('data', (d) => {
-        stdout += d.toString();
+        stdout = appendCapped(stdout, d.toString());
       });
       proc.stderr.on('data', (d) => {
-        stderr += d.toString();
+        stderr = appendCapped(stderr, d.toString());
       });
 
       proc.on('close', (code, signal) => {
@@ -223,8 +278,22 @@ executeRouter.post('/execute', async (req, res, next) => {
       return res.status(413).json({ error: 'Code is too large to run.' });
     }
 
-    // Try local execution first for supported languages
-    if (['javascript', 'typescript', 'html', 'python', 'java', 'cpp'].includes(language)) {
+    // HTML previews are built in the browser; the server never renders them.
+    if (language === 'html') {
+      return res.json({
+        ok: true,
+        language,
+        stdout: 'HTML preview is handled in the browser.',
+        stderr: '',
+        output: '',
+        exitCode: 0,
+        signal: null,
+        html: true,
+      });
+    }
+
+    // Try local execution first for supported languages (development only).
+    if (env.allowLocalExec && LOCAL_RUNNABLE.has(language)) {
       const local = await runLocal({ language, code, stdin });
       if (local.ok) {
         return res.json(local);
@@ -254,8 +323,8 @@ executeRouter.post('/execute', async (req, res, next) => {
       });
     } catch (fetchErr) {
       clearTimeout(timer);
-      // If Piston is unreachable, try local again for JS/TS
-      if (language === 'javascript' || language === 'typescript') {
+      // If Piston is unreachable, try local again for JS/TS (development only).
+      if (env.allowLocalExec && (language === 'javascript' || language === 'typescript')) {
         const local = await runLocal({ language, code, stdin });
         if (local.ok) return res.json(local);
         return res.status(502).json({ error: local.error || fetchErr.message });
@@ -268,8 +337,8 @@ executeRouter.post('/execute', async (req, res, next) => {
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => '');
       console.error('[execute] Piston error', upstream.status, errText);
-      // Fallback to local for JS/TS
-      if (language === 'javascript' || language === 'typescript') {
+      // Fallback to local for JS/TS (development only)
+      if (env.allowLocalExec && (language === 'javascript' || language === 'typescript')) {
         const local = await runLocal({ language, code, stdin });
         if (local.ok) return res.json(local);
       }
