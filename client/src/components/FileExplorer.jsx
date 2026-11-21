@@ -38,12 +38,13 @@ function fileBadge(name) {
   return '•';
 }
 
-function Chevron({ open }) {
-  return (
-    <span className="w-3 shrink-0 text-[10px] text-slate-500">
-      {open ? '▾' : '▸'}
-    </span>
-  );
+function ancestorsOf(path) {
+  const parts = String(path ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\.?\/+/, '')
+    .split('/')
+    .filter(Boolean);
+  return parts.slice(0, -1).map((_, index, arr) => arr.slice(0, index + 1).join('/'));
 }
 
 function TreeNode({
@@ -67,9 +68,10 @@ function TreeNode({
   const canManage = Boolean(onStartRename && onDelete);
   const folderNames = [...node.folders.keys()].sort((a, b) => a.localeCompare(b));
   const sortedFiles = [...node.files].sort((a, b) => a.name.localeCompare(b.name));
+  const indent = { paddingLeft: `${8 + depth * 12}px` };
 
   return (
-    <ul className={depth === 0 ? 'space-y-0.5' : 'space-y-0.5'}>
+    <ul className="space-y-0.5">
       {folderNames.map((name) => {
         const child = node.folders.get(name);
         const childPath = path ? `${path}/${name}` : name;
@@ -80,11 +82,15 @@ function TreeNode({
             <button
               type="button"
               onClick={() => onToggle(childPath)}
-              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs font-medium text-slate-700 hover:bg-slate-200/60"
-              style={{ paddingLeft: `${8 + depth * 12}px` }}
+              className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left font-label-md text-label-md font-medium text-on-surface-variant hover:bg-surface-container"
+              style={indent}
             >
-              <Chevron open={isOpen} />
-              <span className="text-amber-600/80">{isOpen ? '📂' : '📁'}</span>
+              <span className="material-symbols-outlined w-3 shrink-0 text-[12px] text-outline">
+                {isOpen ? 'expand_more' : 'chevron_right'}
+              </span>
+              <span className="material-symbols-outlined text-[16px] text-tertiary">
+                {isOpen ? 'folder_open' : 'folder'}
+              </span>
               <span>{name}</span>
             </button>
             {isOpen && (
@@ -119,11 +125,7 @@ function TreeNode({
         if (editing === file.id) {
           return (
             <li key={file.id}>
-              <form
-                onSubmit={onSubmitRename}
-                className="py-1 pr-2"
-                style={{ paddingLeft: `${8 + depth * 12}px` }}
-              >
+              <form onSubmit={onSubmitRename} className="py-1 pr-2" style={indent}>
                 <input
                   autoFocus
                   value={renameDraft}
@@ -133,13 +135,13 @@ function TreeNode({
                   }}
                   disabled={renameBusy}
                   aria-label={`New path for ${file.path}`}
-                  className="w-full rounded-md border border-brand-500 bg-white px-2 py-1 font-mono text-[11px] text-slate-900 outline-none disabled:opacity-60"
+                  className="w-full rounded-md border border-primary bg-surface-container-lowest px-2 py-1 font-code-sm text-code-sm text-on-surface outline-none disabled:opacity-60"
                 />
-                <div className="mt-1 flex items-center gap-2 text-[10px]">
+                <div className="mt-1 flex items-center gap-2 font-code-sm text-code-sm">
                   <button
                     type="submit"
                     disabled={renameBusy}
-                    className="rounded bg-brand-600 px-2 py-0.5 font-semibold text-white hover:bg-brand-500 disabled:opacity-50"
+                    className="rounded bg-primary-container px-2 py-0.5 font-label-sm text-label-sm font-semibold text-on-primary hover:bg-primary disabled:opacity-50"
                   >
                     {renameBusy ? '…' : 'Save'}
                   </button>
@@ -147,7 +149,7 @@ function TreeNode({
                     type="button"
                     onClick={onCancelRename}
                     disabled={renameBusy}
-                    className="text-slate-500 hover:text-slate-700 disabled:opacity-40"
+                    className="text-on-surface-variant hover:text-on-background disabled:opacity-40"
                   >
                     Cancel
                   </button>
@@ -163,22 +165,22 @@ function TreeNode({
               type="button"
               onClick={() => onOpen(file.id)}
               title={file.path}
-              className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition ${
+              className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left font-label-md text-label-md transition ${
                 isYours
-                  ? 'bg-brand-100 text-brand-700'
-                  : 'text-slate-600 hover:bg-slate-200/60 hover:text-slate-900'
+                  ? 'bg-primary-container font-medium text-on-primary-container'
+                  : 'text-on-surface-variant hover:bg-surface-container hover:text-on-background'
               }`}
-              style={{ paddingLeft: `${8 + depth * 12}px` }}
+              style={indent}
             >
               <span className="w-3 shrink-0" />
-              <span className="w-7 shrink-0 rounded bg-slate-200/80 px-1 text-center text-[9px] font-semibold text-slate-600">
+              <span className="w-7 shrink-0 rounded bg-surface-container-high px-1 text-center font-code-sm text-code-sm font-semibold text-on-surface-variant">
                 {fileBadge(file.name)}
               </span>
               <span className="min-w-0 flex-1 truncate">{file.name}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {isLeft && (
                   <span
-                    className="rounded bg-blue-100 px-1 text-[9px] font-bold text-blue-700"
+                    className="rounded bg-surface-container-highest px-1 font-code-sm text-code-sm font-bold text-primary"
                     title="Open in the left panel"
                   >
                     L
@@ -186,7 +188,7 @@ function TreeNode({
                 )}
                 {isRight && (
                   <span
-                    className="rounded bg-violet-100 px-1 text-[9px] font-bold text-violet-700"
+                    className="rounded bg-secondary-container px-1 font-code-sm text-code-sm font-bold text-on-secondary-container"
                     title="Open in the right panel"
                   >
                     R
@@ -202,18 +204,18 @@ function TreeNode({
                   onClick={() => onStartRename(file)}
                   title={`Rename ${file.path}`}
                   aria-label={`Rename ${file.path}`}
-                  className="rounded px-1 text-[11px] leading-5 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                  className="rounded px-1 text-on-surface-variant hover:bg-surface-container hover:text-on-background"
                 >
-                  ✎
+                  <span className="material-symbols-outlined text-[13px]">edit</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => onDelete(file)}
                   title={`Delete ${file.path}`}
                   aria-label={`Delete ${file.path}`}
-                  className="rounded px-1 text-[11px] leading-5 text-slate-500 hover:bg-red-100 hover:text-red-600"
+                  className="rounded px-1 text-on-surface-variant hover:bg-error-container hover:text-error"
                 >
-                  🗑
+                  <span className="material-symbols-outlined text-[13px]">delete</span>
                 </button>
               </span>
             )}
@@ -259,6 +261,16 @@ export default function FileExplorer({
     });
   };
 
+  const reveal = (path) => {
+    const ancestors = ancestorsOf(path);
+    if (ancestors.length === 0) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((ancestor) => next.delete(ancestor));
+      return next;
+    });
+  };
+
   const openCreateForm = () => {
     setCreating(true);
     setDraftPath('');
@@ -295,24 +307,7 @@ export default function FileExplorer({
       return;
     }
 
-    // Expand any folders the new file was placed inside.
-    const createdPath = result.file?.path ?? path;
-    const parts = createdPath
-      .replace(/\\/g, '/')
-      .replace(/^\.?\/+/, '')
-      .split('/')
-      .filter(Boolean);
-    const ancestors = parts
-      .slice(0, -1)
-      .map((_, index, arr) => arr.slice(0, index + 1).join('/'));
-    if (ancestors.length > 0) {
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        ancestors.forEach((ancestor) => next.delete(ancestor));
-        return next;
-      });
-    }
-
+    reveal(result.file?.path ?? path);
     setCreating(false);
     setDraftPath('');
     setFormError('');
@@ -351,21 +346,7 @@ export default function FileExplorer({
       return;
     }
 
-    // Reveal the folder chain of the new path (like create does).
-    const parts = nextPath
-      .replace(/\\/g, '/')
-      .replace(/^\.?\/+/, '')
-      .split('/')
-      .filter(Boolean);
-    const ancestors = parts.slice(0, -1).map((_, index, arr) => arr.slice(0, index + 1).join('/'));
-    if (ancestors.length > 0) {
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        ancestors.forEach((ancestor) => next.delete(ancestor));
-        return next;
-      });
-    }
-
+    reveal(nextPath);
     setEditingId(null);
     setRenameDraft('');
   };
@@ -390,11 +371,11 @@ export default function FileExplorer({
   };
 
   return (
-    <aside className="flex min-h-0 w-full flex-col border-slate-200 bg-slate-50 lg:w-64 lg:border-r">
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+    <aside className="flex min-h-0 w-full flex-col border-outline-variant bg-surface-container-low lg:w-64 lg:border-r">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-outline-variant px-4 py-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900">Explorer</h2>
-          <p className="mt-0.5 truncate text-[11px] text-slate-500">
+          <h2 className="font-headline-sm text-headline-sm text-on-surface">Explorer</h2>
+          <p className="mt-0.5 truncate font-code-sm text-code-sm text-on-surface-variant">
             {role ? `Your panel: ${role}` : 'Waiting for a seat…'} · {files.length} files
           </p>
         </div>
@@ -403,20 +384,23 @@ export default function FileExplorer({
           onClick={creating ? closeCreateForm : openCreateForm}
           disabled={!role || !onCreate}
           title="Create a new file"
-          className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 transition hover:border-brand-500/60 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-outline-variant bg-surface-container-lowest px-2 py-1 font-label-sm text-label-sm font-medium text-on-surface-variant transition hover:border-primary/60 hover:text-on-background disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {creating ? '×' : '+ New'}
+          <span className="material-symbols-outlined text-[14px]">
+            {creating ? 'close' : 'add'}
+          </span>
+          {creating ? '' : 'New'}
         </button>
       </header>
 
       {creating && (
         <form
           onSubmit={submitCreate}
-          className="shrink-0 border-b border-slate-200 bg-white px-3 py-2"
+          className="shrink-0 border-b border-outline-variant bg-surface-container-lowest px-3 py-2"
         >
           <label
             htmlFor="new-file-path"
-            className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-500"
+            className="mb-1 block font-code-sm text-code-sm font-semibold uppercase tracking-wide text-on-surface-variant"
           >
             New file
           </label>
@@ -431,24 +415,28 @@ export default function FileExplorer({
               }}
               disabled={creatingBusy}
               placeholder="src/new-file.js"
-              className="min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 font-mono text-xs text-slate-900 outline-none placeholder:text-slate-400 focus:border-brand-500 disabled:opacity-60"
+              className="min-w-0 flex-1 rounded-md border border-outline-variant bg-surface-container-lowest px-2 py-1.5 font-code-md text-code-md text-on-surface outline-none placeholder:text-outline focus:border-primary disabled:opacity-60"
             />
             <button
               type="submit"
               disabled={creatingBusy}
-              className="rounded-md bg-brand-600 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-500 disabled:cursor-wait disabled:opacity-50"
+              className="rounded-md bg-primary-container px-2 py-1.5 font-label-sm text-label-sm font-semibold text-on-primary hover:bg-primary disabled:cursor-wait disabled:opacity-50"
             >
               {creatingBusy ? '…' : 'Add'}
             </button>
           </div>
-          {formError && <p className="mt-1.5 text-[11px] text-red-600">{formError}</p>}
+          {formError && (
+            <p role="alert" className="mt-1.5 font-code-sm text-code-sm text-error">
+              {formError}
+            </p>
+          )}
           <div className="mt-1.5 flex items-center justify-between gap-2">
-            <p className="text-[10px] text-slate-500">Use / for folders</p>
+            <p className="font-code-sm text-code-sm text-outline">Use / for folders</p>
             <button
               type="button"
               onClick={closeCreateForm}
               disabled={creatingBusy}
-              className="text-[10px] text-slate-500 hover:text-slate-700 disabled:opacity-40"
+              className="font-code-sm text-code-sm text-on-surface-variant hover:text-on-background disabled:opacity-40"
             >
               Cancel
             </button>
@@ -458,12 +446,15 @@ export default function FileExplorer({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {actionError && (
-          <p className="mx-1 mb-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] text-red-700">
+          <p
+            role="alert"
+            className="mx-1 mb-2 rounded-md border border-outline-variant bg-error-container px-2 py-1 font-code-sm text-code-sm text-on-error-container"
+          >
             {actionError}
           </p>
         )}
         {files.length === 0 ? (
-          <p className="mt-6 px-2 text-center text-xs text-slate-500">
+          <p className="mt-6 px-2 text-center font-body-sm text-body-sm text-on-surface-variant">
             No files in this room yet.
           </p>
         ) : (
@@ -488,12 +479,12 @@ export default function FileExplorer({
         )}
       </div>
 
-      <footer className="shrink-0 border-t border-slate-200 px-4 py-2.5">
-        <p className="truncate text-[11px] text-slate-500">
+      <footer className="shrink-0 border-t border-outline-variant px-4 py-2.5">
+        <p className="truncate font-code-sm text-code-sm text-on-surface-variant">
           {activeFile ? (
             <>
               Open in your panel:{' '}
-              <span className="font-mono text-slate-700">{activeFile.path}</span>
+              <span className="text-on-surface">{activeFile.path}</span>
             </>
           ) : (
             'Click a file to open it, or create a new one.'

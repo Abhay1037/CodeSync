@@ -20,51 +20,47 @@ export default function OutputConsole({
 
   const handleRun = () => onRun(stdin);
 
+  // Full class strings must appear literally so Tailwind's scanner keeps them.
   const exitBadge = (() => {
-    if (runError) return { text: 'error', cls: 'bg-red-500/15 text-red-300' };
+    if (runError) return { text: 'error', cls: 'bg-error-container text-on-error-container' };
     if (!result) return null;
     const code = result.exitCode ?? 0;
     return code === 0
-      ? { text: 'exit 0', cls: 'bg-emerald-500/15 text-emerald-300' }
-      : { text: `exit ${code}`, cls: 'bg-amber-500/15 text-amber-300' };
+      ? { text: 'exit 0', cls: 'bg-secondary-container text-on-secondary-container' }
+      : { text: `exit ${code}`, cls: 'bg-tertiary-container text-on-tertiary-container' };
   })();
 
+  const chip =
+    'rounded border border-outline-variant px-2 py-0.5 font-label-sm text-label-sm text-on-surface-variant hover:text-on-background';
+
   return (
-    <section className="flex h-56 shrink-0 flex-col border-t border-slate-200 bg-white">
-      <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-3 py-2 text-xs">
+    <section className="flex h-56 shrink-0 flex-col border-t border-outline-variant bg-surface-container-lowest">
+      <header className="flex shrink-0 items-center justify-between border-b border-outline-variant px-3 py-2 font-label-md text-label-md">
         <div className="flex items-center gap-3">
-          <span className="font-semibold text-slate-900">Output</span>
+          <span className="font-semibold text-on-surface">Output</span>
           {exitBadge && (
-            <span className={`rounded-full px-2 py-0.5 font-medium ${exitBadge.cls.replace('/15', '/10').replace('text-', 'text-').replace('red-300', 'red-700').replace('emerald-300', 'emerald-700').replace('amber-300', 'amber-700')}`}>
+            <span className={`rounded-full px-2 py-0.5 font-medium ${exitBadge.cls}`}>
               {exitBadge.text}
             </span>
           )}
-          {running && <span className="text-amber-700">running…</span>}
+          {running && <span className="text-on-tertiary-container">running…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowStdin((s) => !s)}
-            className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900"
-          >
+          <button type="button" onClick={() => setShowStdin((s) => !s)} className={chip}>
             stdin
           </button>
-          <button
-            onClick={onClear}
-            className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900"
-          >
+          <button type="button" onClick={onClear} className={chip}>
             clear
           </button>
           <button
+            type="button"
             onClick={handleRun}
             disabled={!canRun || running}
-            className="rounded bg-emerald-600 px-2.5 py-0.5 font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded bg-secondary px-2.5 py-0.5 font-medium text-on-secondary hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             ▶ Run
           </button>
-          <button
-            onClick={onClose}
-            className="rounded border border-slate-300 px-2 py-0.5 text-slate-700 hover:text-slate-900"
-          >
+          <button type="button" onClick={onClose} className={chip} aria-label="Close output">
             ✕
           </button>
         </div>
@@ -75,33 +71,33 @@ export default function OutputConsole({
           value={stdin}
           onChange={(e) => setStdin(e.target.value)}
           placeholder="Program input (stdin)…"
-          className="h-16 shrink-0 resize-none border-b border-slate-200 bg-slate-50 px-3 py-2 font-mono text-xs text-slate-900 outline-none focus:bg-white"
+          className="h-16 shrink-0 resize-none border-b border-outline-variant bg-surface-container-low px-3 py-2 font-code-md text-code-md text-on-surface outline-none focus:bg-surface-container-lowest"
         />
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-xs">
-        {running && <p className="text-slate-500">Executing your code…</p>}
+      <div className="min-h-0 flex-1 overflow-auto px-3 py-2 font-code-md text-code-md">
+        {running && <p className="text-on-surface-variant">Executing your code…</p>}
 
-        {runError && <pre className="whitespace-pre-wrap break-words text-red-700">{runError}</pre>}
+        {runError && <pre className="whitespace-pre-wrap break-words text-error">{runError}</pre>}
 
         {!running && !runError && !result && (
-          <p className="text-slate-500">
+          <p className="text-on-surface-variant">
             Press Run to execute {canRun ? 'your open file' : '(no runnable language selected)'}.
           </p>
         )}
 
         {result && !runError && (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {result.stdout ? (
-              <pre className="whitespace-pre-wrap break-words text-slate-900">{result.stdout}</pre>
+              <pre className="whitespace-pre-wrap break-words text-on-surface">{result.stdout}</pre>
             ) : (
-              <p className="text-slate-500">(no stdout)</p>
+              <p className="text-on-surface-variant">(no stdout)</p>
             )}
             {result.stderr && (
-              <pre className="whitespace-pre-wrap break-words text-red-700">{result.stderr}</pre>
+              <pre className="whitespace-pre-wrap break-words text-error">{result.stderr}</pre>
             )}
             {typeof result.exitCode === 'number' && result.exitCode !== 0 && (
-              <p className="text-slate-500">Exit code: {result.exitCode}</p>
+              <p className="text-on-surface-variant">Exit code: {result.exitCode}</p>
             )}
           </div>
         )}

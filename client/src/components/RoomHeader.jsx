@@ -5,13 +5,13 @@ import { colorFor } from '../constants/editor.js';
 function StatusDot({ status }) {
   const tone =
     status === 'connected'
-      ? 'bg-emerald-400'
+      ? 'bg-secondary'
       : status === 'connecting'
-        ? 'bg-amber-400 animate-pulse'
-        : 'bg-red-500';
+        ? 'bg-tertiary-fixed-dim animate-pulse'
+        : 'bg-error';
 
   return (
-    <span className="flex items-center gap-2 text-xs text-slate-400">
+    <span className="flex items-center gap-2 font-code-sm text-code-sm text-on-surface-variant">
       <span className={`h-2 w-2 rounded-full ${tone}`} />
       {status}
     </span>
@@ -50,47 +50,53 @@ export default function RoomHeader({
   };
 
   return (
-    <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white/80 px-4 py-3 backdrop-blur">
+    <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-outline-variant bg-surface-container-lowest px-space-lg py-3">
       <div className="flex items-center gap-4">
-        <h1 className="text-lg font-bold tracking-tight text-slate-900">
-          Code<span className="text-brand-600">Sync</span>
-        </h1>
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-container font-code-md text-code-md font-semibold text-on-primary">
+            &lt;/&gt;
+          </div>
+          <span className="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">
+            CodeSync
+          </span>
+        </div>
 
         <button
+          type="button"
           onClick={copyRoomId}
           title="Copy room id"
-          className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 transition hover:border-brand-500/60 hover:text-slate-900"
+          className="flex items-center gap-2 rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-1.5 font-code-sm text-code-sm text-on-surface transition hover:border-primary/60"
         >
-          <span className="text-slate-500">room</span>
+          <span className="text-on-surface-variant">room</span>
           <span className="font-mono">{roomId}</span>
-          <span className="text-brand-600">{copied ? 'copied!' : 'copy'}</span>
+          <span className="text-primary-container">{copied ? 'copied!' : 'copy'}</span>
         </button>
 
         <StatusDot status={status} />
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Run own panel */}
         {onRun && (
           <button
+            type="button"
             onClick={() => onRun()}
             disabled={!canRun || running}
             title="Run your panel's code"
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg bg-secondary px-3 py-1.5 font-label-md text-label-md font-semibold text-on-secondary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {running ? 'Running…' : '▶ Run'}
+            <span className="material-symbols-outlined text-[15px]">play_arrow</span>
+            {running ? 'Running…' : 'Run'}
           </button>
         )}
 
-        {/* Participants */}
         <div className="hidden items-center gap-2 sm:flex">
           {users.map((user) => (
             <span
               key={user.id}
-              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
+              className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 font-label-sm text-label-sm font-medium ${
                 user.username === username
-                  ? 'bg-brand-100 text-brand-700'
-                  : 'bg-slate-100 text-slate-700'
+                  ? 'bg-primary-container text-on-primary-container'
+                  : 'bg-surface-container text-on-surface-variant'
               }`}
             >
               <span
@@ -98,36 +104,37 @@ export default function RoomHeader({
                 style={{ backgroundColor: colorFor(user.colorIndex ?? 0) }}
               />
               {user.username}
-              <span className="text-slate-500">· {user.role}</span>
+              <span className="text-outline">· {user.role}</span>
             </span>
           ))}
         </div>
 
-        {/* Active file language (derived from the open file) */}
         <span
           title="Language of the file open in your panel"
-          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+          className="rounded-lg border border-outline-variant bg-surface-container-lowest px-2.5 py-1.5 font-label-md text-label-md font-medium text-on-surface"
         >
           {language}
         </span>
 
-        {/* File explorer toggle (mainly for small screens) */}
         {onToggleExplorer && (
           <button
+            type="button"
             onClick={onToggleExplorer}
-            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-label-md text-label-md font-medium transition ${
               explorerOpen
-                ? 'border-brand-500/60 bg-brand-50 text-brand-700'
-                : 'border-slate-300 bg-white text-slate-700 hover:text-slate-900'
+                ? 'border-primary/60 bg-primary-fixed text-on-primary-fixed'
+                : 'border-outline-variant bg-surface-container-lowest text-on-surface hover:text-on-background'
             }`}
           >
+            <span className="material-symbols-outlined text-[15px]">folder_open</span>
             Files
           </button>
         )}
 
         <button
+          type="button"
           onClick={onLeave}
-          className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100"
+          className="rounded-lg bg-error-container px-3 py-1.5 font-label-md text-label-md font-medium text-on-error-container transition-opacity hover:opacity-90"
         >
           Leave
         </button>

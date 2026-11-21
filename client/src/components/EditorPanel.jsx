@@ -69,7 +69,6 @@ export default function EditorPanel({
           position.column
         ),
         options: {
-          // The label doubles as the visible caret (left border in CSS).
           after: {
             content: ` ${username}`,
             inlineClassName: `remote-cursor-label ${cls}`,
@@ -136,22 +135,24 @@ export default function EditorPanel({
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white">
+    <section className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-container-lowest">
       {/* Pane header */}
       <header
-        className={`flex shrink-0 items-center justify-between border-b px-3 py-2 text-xs ${
-          accent ? 'border-brand-500/40 bg-brand-50' : 'border-slate-200 bg-slate-50'
+        className={`flex shrink-0 items-center justify-between border-b px-3 py-2 font-label-md text-label-md ${
+          accent
+            ? 'border-primary/40 bg-primary-fixed text-on-primary-fixed'
+            : 'border-outline-variant bg-surface-container-low text-on-surface-variant'
         }`}
       >
         <div className="flex items-center gap-2">
-          <span className={`h-2.5 w-2.5 rounded-full ${accent ? 'bg-brand-500' : 'bg-slate-400'}`} />
-          <span className="font-medium text-slate-700">{ownerLabel}</span>
+          <span className={`h-2.5 w-2.5 rounded-full ${accent ? 'bg-primary' : 'bg-outline'}`} />
+          <span className="font-medium">{ownerLabel}</span>
         </div>
         <span
-          className={`rounded-full px-2 py-0.5 font-medium ${
+          className={`rounded-full px-2 py-0.5 font-label-sm text-label-sm font-medium ${
             editable
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-slate-200 text-slate-600'
+              ? 'bg-secondary-container text-on-secondary-container'
+              : 'bg-surface-container-high text-on-surface-variant'
           }`}
         >
           {editable ? 'Editable' : 'Read-only'}

@@ -16,6 +16,7 @@ export const EVENTS = {
   // server -> client
   ROOM_STATE: 'room:state',
   ROOM_FULL: 'room:full',
+  ROOM_DELETED: 'room:deleted',
   FILE_CREATED: 'file:created',
   FILE_OPENED: 'file:opened',
   FILE_RENAMED: 'file:renamed',

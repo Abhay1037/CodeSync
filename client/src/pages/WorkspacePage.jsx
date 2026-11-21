@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useCollaboration } from '../hooks/useCollaboration.js';
 import { useRunner } from '../hooks/useRunner.js';
@@ -51,18 +51,17 @@ function Workspace({ roomId }) {
     navigate('/dashboard');
   };
 
+  // Authenticated users get a real retry instead of a one-way failure screen.
+  const retryJoin = () => {
+    joinStarted.current = false;
+    collab.leave();
+    if (user) collab.join({ roomId, username: user.username, token });
+  };
+
   // --- Guest flow: not signed in and not yet seated ----------------------
   if (!user && !joinedThisRoom) {
     return (
-      <div className="relative h-full">
-        <div className="absolute left-4 top-4 z-10">
-          <Link
-            to="/dashboard"
-            className="rounded-lg border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300 hover:text-white"
-          >
-            ← Dashboard
-          </Link>
-        </div>
+      <div className="h-full">
         <JoinRoomModal
           roomId={roomId}
           onJoin={(name) => collab.join({ roomId, username: name })}
@@ -76,18 +75,30 @@ function Workspace({ roomId }) {
   // --- Authenticated but not seated yet -----------------------------------
   if (!joinedThisRoom) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-slate-950 p-4">
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-surface p-4">
         {collab.status === 'connecting' ? (
-          <p className="text-sm text-slate-400">Joining room…</p>
+          <p className="font-body-md text-body-md text-on-surface-variant">Joining room…</p>
         ) : (
           <>
-            <p className="text-sm text-red-300">{collab.error ?? 'Could not join the room.'}</p>
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:text-white"
-            >
-              Back to dashboard
-            </button>
+            <p role="alert" className="font-body-md text-body-md text-on-error-container">
+              {collab.error ?? 'Could not join the room.'}
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={retryJoin}
+                className="rounded-lg bg-primary-container px-4 py-2 font-label-md text-label-md font-medium text-on-primary hover:bg-primary"
+              >
+                Retry joining
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="rounded-lg border border-outline-variant px-4 py-2 font-label-md text-label-md text-on-surface-variant hover:text-on-background"
+              >
+                Back to dashboard
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -113,7 +124,10 @@ function Workspace({ roomId }) {
     return `${who} · ${file?.name ?? panel}`;
   };
 
-  const canRun = Boolean(role) && RUNNABLE_LANGUAGES.has(currentLanguage);
+  // While offline, edits and runs are paused so a reconnect cannot silently
+  // overwrite work that was never sent to the server.
+  const isOffline = collab.status !== 'connected';
+  const canRun = !isOffline && Boolean(role) && RUNNABLE_LANGUAGES.has(currentLanguage);
 
   const runCode = (stdin = '') => {
     if (!canRun) return;
@@ -140,10 +154,8 @@ function Workspace({ roomId }) {
     return result;
   };
 
-  // The explorer is part of the workspace chrome, so it stays mounted while
-  // switching/creating files and only closes on small screens.
   return (
-    <div className="flex h-full flex-col bg-slate-50">
+    <div className="flex h-full flex-col bg-surface">
       <RoomHeader
         roomId={roomId}
         status={collab.status}
@@ -157,6 +169,31 @@ function Workspace({ roomId }) {
         running={running}
         canRun={canRun}
       />
+
+      {(collab.error || isOffline) && (
+        <div
+          role="alert"
+          className={`flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2 font-body-sm text-body-sm ${
+            collab.error
+              ? 'border-outline-variant bg-error-container text-on-error-container'
+              : 'border-outline-variant bg-tertiary-fixed text-on-tertiary-fixed'
+          }`}
+        >
+          <span>
+            {collab.error ?? 'Connection lost — editing is paused until the server reconnects.'}
+          </span>
+          {collab.error && (
+            <button
+              type="button"
+              onClick={collab.clearError}
+              aria-label="Dismiss message"
+              className="rounded px-1.5 text-base leading-none hover:opacity-70"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         {explorerOpen && (
@@ -174,11 +211,11 @@ function Workspace({ roomId }) {
         {/* Editor column: split panes + optional output console.
             On small screens this whole column is hidden while the explorer is open. */}
         <div className={`min-h-0 flex-1 flex-col ${explorerOpen ? 'hidden lg:flex' : 'flex'}`}>
-          <main className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-slate-200 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <main className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-outline-variant lg:grid-cols-2 lg:divide-x lg:divide-y-0">
             <EditorPanel
               code={code[PANELS.LEFT]}
               language={leftFile?.language ?? 'javascript'}
-              editable={role === PANELS.LEFT}
+              editable={role === PANELS.LEFT && !isOffline}
               accent={role === PANELS.LEFT}
               ownerLabel={labelFor(PANELS.LEFT)}
               remoteCursor={cursorFor(PANELS.LEFT)}
@@ -188,7 +225,7 @@ function Workspace({ roomId }) {
             <EditorPanel
               code={code[PANELS.RIGHT]}
               language={rightFile?.language ?? 'javascript'}
-              editable={role === PANELS.RIGHT}
+              editable={role === PANELS.RIGHT && !isOffline}
               accent={role === PANELS.RIGHT}
               ownerLabel={labelFor(PANELS.RIGHT)}
               remoteCursor={cursorFor(PANELS.RIGHT)}

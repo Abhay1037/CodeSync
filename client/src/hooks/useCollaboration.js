@@ -237,6 +237,15 @@ export function useCollaboration() {
     function onRoomFull({ message }) {
       setError(message ?? 'Room is full.');
       setStatus('disconnected');
+      // Stop the reconnect loop from re-joining a room we cannot enter.
+      roomIdRef.current = null;
+      setRoomId(null);
+    }
+    function onRoomDeleted({ message }) {
+      setError(message ?? 'This room was deleted by its owner.');
+      setStatus('disconnected');
+      roomIdRef.current = null;
+      setRoomId(null);
     }
     function onErrorMessage({ message }) {
       setError(message ?? 'Something went wrong.');
@@ -253,6 +262,7 @@ export function useCollaboration() {
     socket.on(EVENTS.USERS_UPDATE, onUsersUpdate);
     socket.on(EVENTS.CURSOR_UPDATE, onCursorUpdate);
     socket.on(EVENTS.ROOM_FULL, onRoomFull);
+    socket.on(EVENTS.ROOM_DELETED, onRoomDeleted);
     socket.on(EVENTS.ERROR_MESSAGE, onErrorMessage);
 
     return () => {
@@ -267,6 +277,7 @@ export function useCollaboration() {
       socket.off(EVENTS.USERS_UPDATE, onUsersUpdate);
       socket.off(EVENTS.CURSOR_UPDATE, onCursorUpdate);
       socket.off(EVENTS.ROOM_FULL, onRoomFull);
+      socket.off(EVENTS.ROOM_DELETED, onRoomDeleted);
       socket.off(EVENTS.ERROR_MESSAGE, onErrorMessage);
     };
   }, [joinRequest, commitFiles, commitPanelFile, applyPanelFiles]);
@@ -316,8 +327,17 @@ export function useCollaboration() {
       if (!file || !currentRole) return;
       if (panelFilesRef.current[currentRole] === fileId) return;
 
+      const previousFileId = panelFilesRef.current[currentRole];
       commitPanelFile(currentRole, fileId, file.content);
-      if (socket.connected) socket.emit(EVENTS.FILE_OPEN, { fileId });
+
+      if (!socket.connected) return;
+      socket.emit(EVENTS.FILE_OPEN, { fileId }, (res) => {
+        // Reconcile with the server if it refused the switch, otherwise the
+        // local panel would keep showing a file the server never opened.
+        if (res?.ok || !previousFileId) return;
+        const previous = filesRef.current.find((entry) => entry.id === previousFileId);
+        commitPanelFile(currentRole, previousFileId, previous?.content ?? '');
+      });
     },
     [commitPanelFile]
   );
@@ -464,6 +484,8 @@ export function useCollaboration() {
     [flushCursor]
   );
 
+  const clearError = useCallback(() => setError(null), []);
+
   return {
     status,
     role,
@@ -475,6 +497,7 @@ export function useCollaboration() {
     code,
     remoteCursors,
     error,
+    clearError,
     join,
     leave,
     createFile,
