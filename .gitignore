@@ -9,10 +9,9 @@ node_modules/
 .env.*.local
 !.env.example
 
-# Build output
+# Build output (matches dist/ at any depth, including client/dist/)
 dist/
 build/
-client/dist/
 
 # Logs
 logs/

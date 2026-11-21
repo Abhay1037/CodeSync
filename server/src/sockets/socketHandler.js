@@ -16,8 +16,11 @@ import {
   setPanelFile,
   updateFileContent,
 } from './roomStore.js';
-import { ensureRoom, saveFilesDebounced } from '../services/roomService.js';
+import { addParticipant, ensureRoom, saveFilesDebounced } from '../services/roomService.js';
 import { normalizeFilePath } from '../utils/filePaths.js';
+
+/** Match the REST code-size guard so sockets cannot smuggle in huge payloads. */
+const MAX_CODE_CHARS = 100_000;
 
 /** Public shape of a participant sent over the wire. */
 function serializeUser({ id, username, role, colorIndex }) {
@@ -68,6 +71,12 @@ function sanitizePosition(position) {
  * @param {import('socket.io').Socket} socket
  */
 export function registerSocketHandlers(io, socket) {
+  /** Persist room state and surface database failures to every editor. */
+  const persist = (id, room) =>
+    saveFilesDebounced(id, room.files, room.panelFiles, (message) => {
+      io.to(id).emit(EVENTS.ERROR_MESSAGE, { message });
+    });
+
   /**
    * JOIN: seat the user, reply with full room state, announce to peers.
    * Uses an acknowledgement callback so the client knows the outcome
@@ -90,7 +99,8 @@ export function registerSocketHandlers(io, socket) {
         return socket.emit(EVENTS.ERROR_MESSAGE, { message });
       }
 
-      const dbRoom = await ensureRoom({ roomId, ownerId: userId, participantId: userId });
+      // Do not record membership until the seat is actually granted (below).
+      const dbRoom = await ensureRoom({ roomId, ownerId: userId });
       const cached = getRoom(roomId);
       if (!cached || !cached.hydrated) {
         hydrateRoom(roomId, {
@@ -110,6 +120,11 @@ export function registerSocketHandlers(io, socket) {
       }
 
       const { room, user } = result;
+
+      // Only a seated editor becomes a room member. This keeps the private
+      // GET /api/rooms/:roomId endpoint honest for rejected third joiners.
+      if (userId) await addParticipant(roomId, userId);
+
       ensurePanelFile(room, user.role);
       socket.join(roomId);
 
@@ -145,7 +160,7 @@ export function registerSocketHandlers(io, socket) {
     }
 
     setPanelFile({ roomId, panel: user.role, fileId });
-    saveFilesDebounced(roomId, room.files, room.panelFiles);
+    persist(roomId, room);
 
     ack?.({ ok: true, fileId, panel: user.role });
     socket.to(roomId).emit(EVENTS.FILE_OPENED, {
@@ -207,7 +222,7 @@ export function registerSocketHandlers(io, socket) {
 
     // A newly created file becomes the creator's active file immediately.
     setPanelFile({ roomId, panel: user.role, fileId: result.file.id });
-    saveFilesDebounced(roomId, room.files, room.panelFiles);
+    persist(roomId, room);
 
     ack?.({ ok: true, file: { ...result.file }, panel: user.role });
     socket.to(roomId).emit(EVENTS.FILE_CREATED, {
@@ -247,7 +262,9 @@ export function registerSocketHandlers(io, socket) {
     }
 
     const panelFiles = { ...room.panelFiles };
-    saveFilesDebounced(roomId, room.files, panelFiles);
+    saveFilesDebounced(roomId, room.files, panelFiles, (message) =>
+      io.to(roomId).emit(EVENTS.ERROR_MESSAGE, { message })
+    );
 
     ack?.({ ok: true, file: { ...result.file }, panelFiles });
     socket.to(roomId).emit(EVENTS.FILE_RENAMED, {
@@ -281,7 +298,9 @@ export function registerSocketHandlers(io, socket) {
     }
 
     const panelFiles = { ...room.panelFiles };
-    saveFilesDebounced(roomId, room.files, panelFiles);
+    saveFilesDebounced(roomId, room.files, panelFiles, (message) =>
+      io.to(roomId).emit(EVENTS.ERROR_MESSAGE, { message })
+    );
 
     ack?.({ ok: true, fileId, panelFiles });
     socket.to(roomId).emit(EVENTS.FILE_DELETED, {
@@ -331,11 +350,17 @@ export function registerSocketHandlers(io, socket) {
     }
 
     const nextCode = String(code ?? '');
+    if (nextCode.length > MAX_CODE_CHARS) {
+      return socket.emit(EVENTS.ERROR_MESSAGE, {
+        message: 'That file is too large to save.',
+      });
+    }
+
     updateFileContent({ roomId, fileId: activeFileId, content: nextCode });
 
     // Debounced persistence - one DB write per typing burst, not per key.
     const fresh = getRoom(roomId);
-    if (fresh) saveFilesDebounced(roomId, fresh.files, fresh.panelFiles);
+    if (fresh) persist(roomId, fresh);
 
     // Broadcast to the other editor only; the author already has this state.
     socket.to(roomId).emit(EVENTS.CODE_UPDATE, {

@@ -39,6 +39,7 @@ const httpServer = http.createServer(app);
 
 // 4 ----------------------------------------------------------------------
 const io = new Server(httpServer, {
+  // Expose to REST routes so room deletion can notify connected peers.
   // Reuse the exact same origin allow-list as the REST layer.
   cors: corsOptions,
 
@@ -49,6 +50,9 @@ const io = new Server(httpServer, {
   // How long to wait for a reconnecting client before giving up on it.
   pingTimeout: 20000,
 });
+
+// Let REST handlers reach Socket.io (used to notify peers on room deletion).
+app.set('io', io);
 
 // Optional auth for sockets: resolve a JWT from the handshake if present.
 // Guests (no token) are still allowed, so the app works without logging in.

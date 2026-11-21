@@ -98,7 +98,7 @@ export async function setLanguage(roomId, language) {
 // per room per PERSIST_DEBOUNCE_MS window.
 const pending = new Map(); // roomId -> { timer, files, panelFiles }
 
-export function saveFilesDebounced(roomId, files, panelFiles) {
+export function saveFilesDebounced(roomId, files, panelFiles, onError) {
   const existing = pending.get(roomId);
   if (existing) clearTimeout(existing.timer);
 
@@ -117,10 +117,23 @@ export function saveFilesDebounced(roomId, files, panelFiles) {
           lastActiveAt: new Date(),
         },
       }
-    ).catch((err) => console.error('[db] saveFiles failed:', err.message));
+    ).catch((err) => {
+      const message = `Could not save room changes: ${err.message}`;
+      console.error('[db] saveFiles failed:', err.message);
+      onError?.(message);
+    });
   }, env.persistDebounceMs);
 
   pending.set(roomId, { timer, files: snapshotFiles, panelFiles: snapshotPanels });
+}
+
+/** Cancel a queued save (used when a room is deleted while a timer is live). */
+export function cancelPendingSave(roomId) {
+  const pendingSave = pending.get(roomId);
+  if (!pendingSave) return false;
+  clearTimeout(pendingSave.timer);
+  pending.delete(roomId);
+  return true;
 }
 
 /** Force an immediate write (used on graceful shutdown). */

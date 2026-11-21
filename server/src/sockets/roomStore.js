@@ -273,3 +273,8 @@ export function getRoom(roomId) {
 export function getRoomCount() {
   return rooms.size;
 }
+
+/** Drop a room from the hot cache after it has been deleted from MongoDB. */
+export function evictRoom(roomId) {
+  return rooms.delete(roomId);
+}

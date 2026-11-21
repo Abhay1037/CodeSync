@@ -56,6 +56,14 @@ export const env = {
    * Set to 0 to disable cleanup entirely.
    */
   roomTtlDays: Number(process.env.ROOM_TTL_DAYS ?? 30),
+
+  /** Optional override for the built frontend folder served in production. */
+  clientDistPath: process.env.CLIENT_DIST_PATH ?? '',
+
+  /** Simple in-memory rate limits for the public auth/execute endpoints. */
+  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
+  authRateLimitMax: Number(process.env.AUTH_RATE_LIMIT_MAX) || 100,
+  executeRateLimitMax: Number(process.env.EXECUTE_RATE_LIMIT_MAX) || 60,
 };
 
 export const isProduction = env.nodeEnv === 'production';

@@ -2,12 +2,15 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { requireAuth } from '../middleware/auth.js';
 import {
+  cancelPendingSave,
   deleteRoom,
   ensureRoom,
   getRoomAccess,
   getRoomState,
   listRoomsForUser,
 } from '../services/roomService.js';
+import { evictRoom } from '../sockets/roomStore.js';
+import { EVENTS } from '../constants/events.js';
 
 export const roomsRouter = Router();
 
@@ -107,6 +110,18 @@ roomsRouter.delete('/rooms/:roomId', requireAuth, async (req, res, next) => {
     }
 
     await deleteRoom(req.params.roomId);
+    // A deleted room must not survive in the realtime hot cache (otherwise a
+    // later socket join would silently resurrect it), and any queued debounced
+    // write must be dropped as well.
+    cancelPendingSave(req.params.roomId);
+    evictRoom(req.params.roomId);
+
+    // Tell anyone still connected that their workspace is gone.
+    req.app.get('io')?.to(req.params.roomId).emit(EVENTS.ROOM_DELETED, {
+      roomId: req.params.roomId,
+      message: 'This room was deleted by its owner.',
+    });
+
     return res.json({ ok: true, roomId: req.params.roomId });
   } catch (err) {
     return next(err);

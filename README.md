@@ -225,16 +225,24 @@ a file such as `src/components/Button.jsx`.
 | `npm run dev:server` | Backend only (`node --watch`)               |
 | `npm run dev:client` | Frontend only (Vite)                        |
 | `npm run build`    | Production build of the client                |
-| `npm test`         | Backend test suite (23 tests, in-memory DB)   |
+| `npm test`         | Backend test suite (28 tests, in-memory DB)   |
 | `npm start`        | Start the backend in (production) mode         |
 
 ## Notes for Production
 
-- Replace the in-memory `roomStore` with **Redis** + the Socket.io Redis adapter
-  to scale horizontally and survive restarts.
+- **Done:** in production, Express serves the built `client/dist` SPA (with an
+  SPA route fallback) whenever `client/dist/index.html` exists. Set
+  `CLIENT_DIST_PATH` if the build output lives elsewhere. The API keeps its own
+  JSON 404s under `/api/*`.
+- **Done:** per-IP fixed-window rate limits protect the public
+  `/api/auth/*` and `/api/execute` endpoints. Tune with `RATE_LIMIT_WINDOW_MS`,
+  `AUTH_RATE_LIMIT_MAX` and `EXECUTE_RATE_LIMIT_MAX`; use Redis/an API gateway
+  when running more than one server instance.
 - Keep local code execution OFF (`NODE_ENV=production` disables it by default)
   and point `PISTON_URL` at an isolated runner.
-- Serve `client/dist` statically from Express (or a CDN) and point
-  `VITE_SERVER_URL` at the deployed API.
-- Tighten `CLIENT_ORIGIN` to your real domains and add auth/rate-limiting on
-  `/api/auth/*` and `/api/execute`.
+- Tighten `CLIENT_ORIGIN` to your real domains. CORS allows `DELETE` so room
+  deletion works from the browser.
+- **Remaining for horizontal scale:** replace the in-memory `roomStore` with
+  **Redis** + the Socket.io Redis adapter so rooms survive restarts and are
+  shared across processes. The current `Map` is intentional for a single-node
+  deployment / college demo.
