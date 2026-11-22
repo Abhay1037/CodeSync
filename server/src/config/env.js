@@ -1,7 +1,11 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
-// Load variables from .env into process.env as early as possible.
-dotenv.config();
+// Always load server/.env, even when Node is started from the repository root
+// (e.g. `node server/src/server.js`) instead of from the server workspace.
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+dotenv.config({ path: path.join(serverRoot, '.env') });
 
 /**
  * Base URL for the Piston-compatible execution API. There is deliberately no

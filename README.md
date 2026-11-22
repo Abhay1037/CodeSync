@@ -192,6 +192,15 @@ shows a clear message (for example "Code execution service is unavailable" or
 "Code runner authentication failed") instead of crashing. Details are logged
 server-side only.
 
+**Troubleshooting "Code execution is not configured on this server":**
+
+- **Local:** `server/.env` must contain `PISTON_API_URL=...`; restart the backend
+  after editing it. `npm run dev` from the repo root is supported.
+- **Render:** open the service → **Environment** → add `PISTON_API_URL` with a
+  publicly reachable runner URL such as `https://runner.example.com/api/v2`,
+  then redeploy. `sync: false` in `render.yaml` means Render will not fill this
+  value automatically on an existing service.
+
 ### Testing Java, Python and C++
 
 Open a room, select the language in the editor and click **▶ Run**. Tick
