@@ -117,10 +117,18 @@ export default function DashboardPage() {
         )}
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-space-lg">
-        <div className="mx-auto flex w-full max-w-[768px] flex-col gap-6 py-4">
+      <main
+        className={`min-h-0 flex-1 overflow-y-auto p-space-lg ${
+          !user ? 'flex flex-col items-center' : ''
+        }`}
+      >
+        <div
+          className={`mx-auto flex w-full flex-col gap-6 ${
+            !user ? 'my-auto max-w-md' : 'max-w-[768px] py-4'
+          }`}
+        >
           {/* Actions */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className={`grid grid-cols-1 gap-4 ${user ? 'md:grid-cols-2' : ''}`}>
             {user && (
               <form
                 onSubmit={handleCreate}
