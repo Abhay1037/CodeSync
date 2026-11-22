@@ -228,6 +228,22 @@ a file such as `src/components/Button.jsx`.
 | `npm test`         | Backend test suite (28 tests, in-memory DB)   |
 | `npm start`        | Start the backend in (production) mode         |
 
+## Deploy to Render
+
+The repo includes a [Blueprint](./render.yaml) that deploys the API, Socket.io
+gateway and built React SPA as **one Web Service**:
+
+1. Push to GitHub, then in Render: **New → Blueprint** → select this repo.
+2. Fill in the prompted `MONGO_URI` (MongoDB Atlas); `JWT_SECRET` is generated
+   automatically. Name the service `codesync` (or update `render.yaml`).
+3. Deploy. Build: `npm ci --include=dev && npm run build`; start: `npm start`;
+   health check: `/api/health`.
+
+The client uses `VITE_SERVER_URL` when set (local dev) and otherwise falls back
+to `window.location.origin`, so the same build works on any Render URL or custom
+domain without a rebuild. Render's own `RENDER_EXTERNAL_URL` is auto-allowed by
+CORS. For a custom domain, also set `CLIENT_ORIGIN` to that exact origin.
+
 ## Notes for Production
 
 - **Done:** in production, Express serves the built `client/dist` SPA (with an

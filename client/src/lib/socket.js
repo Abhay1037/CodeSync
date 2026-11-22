@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { SERVER_URL } from './serverUrl.js';
 
 /**
  * Single shared Socket.io client instance.
@@ -7,8 +8,6 @@ import { io } from 'socket.io-client';
  * opening multiple sockets, which would make a client occupy BOTH panels
  * and instantly hit the "room full" guard.
  */
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:5000';
-
 export const socket = io(SERVER_URL, {
   autoConnect: false, // we connect explicitly after the user joins a room
   withCredentials: true,

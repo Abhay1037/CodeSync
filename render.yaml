@@ -1,0 +1,39 @@
+# Render Blueprint - one web service serves the built SPA + REST API + Socket.io.
+# Dashboard me: New > Blueprint > is repo ko select karein.
+services:
+  - type: web
+    name: codesync
+    runtime: node
+    plan: free
+    region: oregon
+    # --include=dev is important: vite/tailwind are devDependencies and must be
+    # present at build time even if the platform runs in production mode.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # NODE_ENV intentionally not set here: server/src/start.js forces
+      # production at runtime, and vite needs devDependencies at build time.
+      # Dashboard me MongoDB Atlas connection string daalein.
+      - key: MONGO_URI
+        sync: false
+      # Secure random JWT secret, generated once by Render.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      # Public Piston runner; apna self-hosted runner ho to yahan badlein.
+      - key: PISTON_URL
+        value: https://emkc.org/api/v2/piston
+      - key: PISTON_TIMEOUT_MS
+        value: "10000"
+      - key: ROOM_TTL_DAYS
+        value: "30"
+      # Optional: custom domain lagane par use apne domain par set karein.
+      # RENDER_EXTERNAL_URL already allowed automatically (server/src/config/env.js).
+      # - key: CLIENT_ORIGIN
+      #   value: https://www.example.com
+      # - key: PISTON_API_KEY
+      #   sync: false

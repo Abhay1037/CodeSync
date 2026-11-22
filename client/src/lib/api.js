@@ -1,4 +1,4 @@
-const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:5000';
+import { SERVER_URL } from './serverUrl.js';
 
 const TOKEN_KEY = 'cs_token';
 

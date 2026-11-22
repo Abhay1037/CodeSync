@@ -16,10 +16,15 @@ export const env = {
    * Allowed browser origins. Supports a comma-separated list so the same
    * build can serve local dev, staging and production front-ends.
    */
-  clientOrigins: (process.env.CLIENT_ORIGIN ?? 'http://localhost:5173')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  clientOrigins: [
+    ...(process.env.CLIENT_ORIGIN ?? 'http://localhost:5173')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+    // Render sets this to the service's public URL. Including it lets the
+    // single-service deploy work without hard-coding an onrender.com domain.
+    ...(process.env.RENDER_EXTERNAL_URL ? [process.env.RENDER_EXTERNAL_URL] : []),
+  ],
 
   /**
    * Remote code-execution backend (Piston). Self-host with Docker later by
