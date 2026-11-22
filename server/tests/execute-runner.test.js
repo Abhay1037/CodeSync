@@ -44,6 +44,14 @@ before(async () => {
         return res.end('not json');
       }
 
+      if (mode === 'hang') {
+        // Simulate a runner that accepts the request but never responds.
+        req.on('aborted', () => res.destroy());
+        return setTimeout(() => {
+          if (!res.writableEnded) res.destroy();
+        }, 500);
+      }
+
       res.writeHead(200, { 'Content-Type': 'application/json' });
       if (mode === 'compile-error') {
         return res.end(
@@ -58,12 +66,27 @@ before(async () => {
         );
       }
 
+      if (mode === 'runtime-error') {
+        return res.end(
+          JSON.stringify({
+            run: {
+              stdout: 'before\n',
+              stderr: 'Exception in thread "main" java.lang.RuntimeException: boom',
+              output: 'before\nException in thread "main" java.lang.RuntimeException: boom',
+              code: 1,
+              signal: null,
+            },
+          })
+        );
+      }
+
+      const stdout = `Hello, ${String(lastRequest.body.stdin).trim()}\n`;
       res.end(
         JSON.stringify({
           run: {
-            stdout: 'Hello, Ada\n',
+            stdout,
             stderr: '',
-            output: 'Hello, Ada\n',
+            output: stdout,
             code: 0,
             signal: null,
           },
@@ -114,6 +137,58 @@ test('names Java files after the public class and surfaces compile errors', asyn
   assert.equal(lastRequest.body.files[0].name, 'Main');
   assert.match(res.body.stderr, /cannot find symbol/);
   assert.equal(res.body.exitCode, 1);
+});
+
+test('passes JavaScript runtime and stdin through to Piston', async () => {
+  mode = 'ok';
+
+  const res = await request(app).post('/api/execute').send({
+    language: 'javascript',
+    code: 'console.log("echo:" + require("fs").readFileSync(0, "utf8"))',
+    stdin: 'JS-INPUT',
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(lastRequest.body.language, 'javascript');
+  assert.equal(lastRequest.body.files[0].name, 'main.js');
+  assert.equal(lastRequest.body.stdin, 'JS-INPUT');
+  assert.equal(res.body.stdout, 'Hello, JS-INPUT\n');
+});
+
+test('passes Java runtime and stdin through and surfaces runtime errors', async () => {
+  mode = 'runtime-error';
+
+  const res = await request(app).post('/api/execute').send({
+    language: 'java',
+    code: 'public class Main { public static void main(String[] a) { throw new RuntimeException("boom"); } }',
+    stdin: 'java-input',
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(lastRequest.body.language, 'java');
+  assert.equal(lastRequest.body.files[0].name, 'Main');
+  assert.equal(lastRequest.body.stdin, 'java-input');
+  assert.equal(res.body.stdout, 'before\n');
+  assert.match(res.body.stderr, /RuntimeException: boom/);
+  assert.equal(res.body.exitCode, 1);
+});
+
+test('enforces PISTON_TIMEOUT_MS while waiting for the runner', async () => {
+  mode = 'hang';
+  const original = env.pistonTimeoutMs;
+  env.pistonTimeoutMs = 50;
+
+  try {
+    const res = await request(app)
+      .post('/api/execute')
+      .send({ language: 'javascript', code: 'console.log(1)' });
+
+    assert.equal(res.status, 504);
+    assert.match(res.body.error, /timed out/i);
+  } finally {
+    env.pistonTimeoutMs = original;
+    mode = 'ok';
+  }
 });
 
 test('replaces runner 401 text with a safe client message', async () => {

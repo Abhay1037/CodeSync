@@ -8,16 +8,27 @@ const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 dotenv.config({ path: path.join(serverRoot, '.env') });
 
 /**
- * Base URL for the Piston-compatible execution API. There is deliberately no
- * public fallback: emkc.org is whitelist-only as of 2026-02-15.
+ * Normalise a Piston base URL to ".../api/v2" so callers can safely append
+ * "/execute". Handles bare hosts, trailing slashes, a full "/execute" URL and
+ * hosted variants such as ".../api/v2/piston".
  *
- * Accept both ".../api/v2" and ".../api/v2/execute" so a full endpoint URL
- * copied from a provider still works with the `/execute` call in the runner.
+ * There is deliberately no public fallback: emkc.org is whitelist-only as of
+ * 2026-02-15.
  */
-const pistonApiUrl = (process.env.PISTON_API_URL ?? '')
-  .trim()
-  .replace(/\/execute\/?$/, '')
-  .replace(/\/+$/, '');
+export function normalizePistonApiUrl(raw) {
+  const value = (raw ?? '').trim();
+  if (!value) return '';
+
+  const base = value
+    .replace(/\/+$/, '')
+    .replace(/\/execute$/, '')
+    .replace(/\/+$/, '');
+
+  return /\/api\/v2(?:\/piston)?$/.test(base) ? base : `${base}/api/v2`;
+}
+
+// PISTON_API_URL is canonical; PISTON_URL is accepted for existing deployments.
+const pistonApiUrl = normalizePistonApiUrl(process.env.PISTON_API_URL ?? process.env.PISTON_URL);
 
 /**
  * Centralised, validated runtime configuration.

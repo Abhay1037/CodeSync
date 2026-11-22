@@ -195,7 +195,8 @@ server-side only.
 **Troubleshooting "Code execution is not configured on this server":**
 
 - **Local:** `server/.env` must contain `PISTON_API_URL=...`; restart the backend
-  after editing it. `npm run dev` from the repo root is supported.
+  after editing it. `npm run dev` from the repo root is supported. `PISTON_URL`
+  is accepted as a legacy alias, but `PISTON_API_URL` takes precedence.
 - **Render:** open the service → **Environment** → add `PISTON_API_URL` with a
   publicly reachable runner URL such as `https://runner.example.com/api/v2`,
   then redeploy. `sync: false` in `render.yaml` means Render will not fill this

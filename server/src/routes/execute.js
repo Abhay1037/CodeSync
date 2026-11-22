@@ -376,11 +376,16 @@ executeRouter.post('/execute', async (req, res, next) => {
       return res.status(503).json({ error: RUNNER_NOT_CONFIGURED_ERROR });
     }
 
-    // Hard timeout so a hung runner can't tie up our event loop.
+    // Hard timeout covers the fetch AND reading the runner's response body.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), env.pistonTimeoutMs);
 
     let upstream;
+    let upstreamText = '';
+    let data = null;
+    let phase = 'fetch';
+    let runnerError = null;
+
     try {
       upstream = await fetch(`${env.pistonApiUrl}/execute`, {
         method: 'POST',
@@ -396,23 +401,38 @@ executeRouter.post('/execute', async (req, res, next) => {
         }),
         signal: controller.signal,
       });
-    } catch (fetchErr) {
-      const timedOut = fetchErr?.name === 'AbortError';
-      const local = timedOut ? null : await tryLocalFallback();
-      if (local) return res.json(local);
 
-      const error = timedOut ? 'Code runner timed out.' : RUNNER_UNAVAILABLE_ERROR;
-      return res.status(timedOut ? 504 : 502).json({
-        error: localError ? `${error} Local compiler said: ${localError}` : error,
-      });
+      phase = upstream.ok ? 'json' : 'text';
+      if (upstream.ok) {
+        data = await upstream.json();
+      } else {
+        upstreamText = await upstream.text();
+      }
+    } catch (err) {
+      runnerError = err;
     } finally {
       clearTimeout(timer);
     }
 
+    if (runnerError) {
+      const timedOut = runnerError?.name === 'AbortError';
+      const local = timedOut ? null : await tryLocalFallback();
+      if (local) return res.json(local);
+
+      if (timedOut) {
+        return res.status(504).json({ error: 'Code runner timed out.' });
+      }
+      if (phase === 'json') {
+        return res.status(502).json({ error: 'Code runner returned an invalid response.' });
+      }
+      return res.status(502).json({
+        error: localError ? `${RUNNER_UNAVAILABLE_ERROR} Local compiler said: ${localError}` : RUNNER_UNAVAILABLE_ERROR,
+      });
+    }
+
     if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => '');
       // Full upstream detail stays in server logs, never in the browser.
-      console.error('[execute] runner error', upstream.status, errText.slice(0, 500));
+      console.error('[execute] runner error', upstream.status, upstreamText.slice(0, 500));
 
       const local = await tryLocalFallback();
       if (local) return res.json(local);
@@ -424,15 +444,6 @@ executeRouter.post('/execute', async (req, res, next) => {
       return res.status(502).json({
         error: localError ? `${error} Local compiler said: ${localError}` : error,
       });
-    }
-
-    let data;
-    try {
-      data = await upstream.json();
-    } catch {
-      const local = await tryLocalFallback();
-      if (local) return res.json(local);
-      return res.status(502).json({ error: 'Code runner returned an invalid response.' });
     }
 
     return res.json(formatPistonResponse(data, language));
