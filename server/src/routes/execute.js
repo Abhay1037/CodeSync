@@ -8,8 +8,8 @@ import path from 'path';
 /**
  * Code execution endpoint.
  *
- * Tries to use a Piston runner if available; falls back to local execution
- * for JavaScript/TypeScript in development.
+ * Runs code through the configured Piston-compatible service. The optional
+ * unsandboxed local runner remains a development-only fallback.
  */
 export const executeRouter = Router();
 
@@ -28,6 +28,60 @@ const LOCAL_RUNNABLE = new Set(['javascript', 'typescript', 'python', 'java', 'c
 const MAX_CODE_BYTES = 100_000;
 /** Keep runaway programs from exhausting the server's memory. */
 const MAX_OUTPUT_CHARS = 64 * 1024;
+
+/** Filenames matter to Piston: Java source files must match the public class. */
+const PISTON_FILE_NAMES = {
+  javascript: 'main.js',
+  typescript: 'main.ts',
+  python: 'main.py',
+  cpp: 'main.cpp',
+};
+
+/** Safe, user-facing messages. Never include the runner URL, key or upstream body. */
+const RUNNER_NOT_CONFIGURED_ERROR =
+  'Code execution is not configured on this server. Ask the server administrator to set it up.';
+const RUNNER_UNAVAILABLE_ERROR =
+  'Code execution service is unavailable. Please try again later.';
+const RUNNER_AUTH_ERROR =
+  'Code runner authentication failed. Ask the server administrator to check the execution service.';
+
+function pistonFileName(language, code) {
+  if (language === 'java') {
+    const match = code.match(
+      /\bpublic\s+(?:(?:final|abstract|strictfp)\s+)*class\s+([A-Za-z_$][\w$]*)/
+    );
+    // Piston's Java runtime appends ".java" itself; the public class name is
+    // the stem it needs for source-file mode.
+    return match?.[1] ?? 'Main';
+  }
+  return PISTON_FILE_NAMES[language] ?? 'main.code';
+}
+
+/** Map Piston's run/compile stages onto the shape the output console expects. */
+function formatPistonResponse(data, language) {
+  const compile = data?.compile ?? null;
+  const run = data?.run ?? null;
+
+  const compileStdout = typeof compile?.stdout === 'string' ? compile.stdout : '';
+  const compileStderr = typeof compile?.stderr === 'string' ? compile.stderr : '';
+  const runStdout = typeof run?.stdout === 'string' ? run.stdout : '';
+  const runStderr = typeof run?.stderr === 'string' ? run.stderr : '';
+
+  const compileFailed = compile != null && compile.code != null && Number(compile.code) !== 0;
+  const stage = compileFailed ? compile : (run ?? {});
+  const stderr = [compileStderr, runStderr].filter(Boolean).join('\n');
+  const output = [compileStdout, compileStderr, runStdout, runStderr].filter(Boolean).join('\n');
+
+  return {
+    ok: true,
+    language,
+    stdout: runStdout,
+    stderr,
+    output: output || run?.output || '',
+    exitCode: stage.code ?? stage.exitCode ?? null,
+    signal: stage.signal ?? null,
+  };
+}
 
 /**
  * Minimal environment for child processes.
@@ -305,15 +359,21 @@ executeRouter.post('/execute', async (req, res, next) => {
       });
     }
 
-    // Try local execution first for supported languages (development only).
     let localError = null;
-    if (env.allowLocalExec && LOCAL_RUNNABLE.has(language)) {
+    async function tryLocalFallback() {
+      if (!env.allowLocalExec || !LOCAL_RUNNABLE.has(language)) return null;
       const local = await runLocal({ language, code, stdin });
-      if (local.ok) {
-        return res.json(local);
-      }
+      if (local.ok) return local;
       localError = local.error ?? null;
-      // fall through to try Piston if local failed
+      return null;
+    }
+
+    // No public runner by design: in production this is a clear setup error,
+    // while development can still use the explicitly allowed local runner.
+    if (!env.pistonApiUrl) {
+      const local = await tryLocalFallback();
+      if (local) return res.json(local);
+      return res.status(503).json({ error: RUNNER_NOT_CONFIGURED_ERROR });
     }
 
     // Hard timeout so a hung runner can't tie up our event loop.
@@ -322,7 +382,7 @@ executeRouter.post('/execute', async (req, res, next) => {
 
     let upstream;
     try {
-      upstream = await fetch(`${env.pistonUrl}/execute`, {
+      upstream = await fetch(`${env.pistonApiUrl}/execute`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -331,23 +391,19 @@ executeRouter.post('/execute', async (req, res, next) => {
         body: JSON.stringify({
           language: pistonLang,
           version: '*',
-          files: [{ content: code }],
+          files: [{ name: pistonFileName(language, code), content: code }],
           stdin: String(stdin),
         }),
         signal: controller.signal,
       });
     } catch (fetchErr) {
-      clearTimeout(timer);
-      // If Piston is unreachable, try local again for JS/TS (development only).
-      if (env.allowLocalExec && (language === 'javascript' || language === 'typescript')) {
-        const local = await runLocal({ language, code, stdin });
-        if (local.ok) return res.json(local);
-        return res.status(502).json({ error: local.error || fetchErr.message });
-      }
-      return res.status(502).json({
-        error: `Code runner unreachable (${fetchErr.message}).${
-          localError ? ` Local compiler said: ${localError}` : ''
-        }`,
+      const timedOut = fetchErr?.name === 'AbortError';
+      const local = timedOut ? null : await tryLocalFallback();
+      if (local) return res.json(local);
+
+      const error = timedOut ? 'Code runner timed out.' : RUNNER_UNAVAILABLE_ERROR;
+      return res.status(timedOut ? 504 : 502).json({
+        error: localError ? `${error} Local compiler said: ${localError}` : error,
       });
     } finally {
       clearTimeout(timer);
@@ -355,36 +411,33 @@ executeRouter.post('/execute', async (req, res, next) => {
 
     if (!upstream.ok) {
       const errText = await upstream.text().catch(() => '');
-      console.error('[execute] Piston error', upstream.status, errText);
-      // Fallback to local for JS/TS (development only)
-      if (env.allowLocalExec && (language === 'javascript' || language === 'typescript')) {
-        const local = await runLocal({ language, code, stdin });
-        if (local.ok) return res.json(local);
-      }
+      // Full upstream detail stays in server logs, never in the browser.
+      console.error('[execute] runner error', upstream.status, errText.slice(0, 500));
+
+      const local = await tryLocalFallback();
+      if (local) return res.json(local);
+
+      const authFailure = upstream.status === 401 || upstream.status === 403;
+      const error = authFailure
+        ? RUNNER_AUTH_ERROR
+        : `Code runner rejected the request (HTTP ${upstream.status}). Ask the server administrator to check the execution service.`;
       return res.status(502).json({
-        error: `Code runner responded with ${upstream.status}${errText ? `: ${errText.slice(0, 200)}` : '.'}${
-          localError ? ` Local compiler said: ${localError}` : ''
-        }`,
+        error: localError ? `${error} Local compiler said: ${localError}` : error,
       });
     }
 
-    const data = await upstream.json();
-    const run = data.run ?? {};
-
-    return res.json({
-      ok: true,
-      language,
-      stdout: run.stdout ?? '',
-      stderr: run.stderr ?? '',
-      output: run.output ?? run.stdout ?? run.stderr ?? '',
-      exitCode: run.code ?? run.exitCode ?? null,
-      signal: run.signal ?? null,
-    });
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      return res.status(504).json({ error: 'Code runner timed out.' });
+    let data;
+    try {
+      data = await upstream.json();
+    } catch {
+      const local = await tryLocalFallback();
+      if (local) return res.json(local);
+      return res.status(502).json({ error: 'Code runner returned an invalid response.' });
     }
+
+    return res.json(formatPistonResponse(data, language));
+  } catch (err) {
     console.error('[execute] unexpected error', err);
-    return res.status(500).json({ error: err.message ?? 'Execution failed.' });
+    return res.status(500).json({ error: 'Execution failed unexpectedly.' });
   }
 });

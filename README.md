@@ -130,29 +130,88 @@ The **Run** button executes the file open in *your own* panel (never your
 partner's) in its language and shows the result in the output console (stdout,
 stderr, exit code, plus a stdin box).
 
-Execution is proxied server-side to a **Piston** runner. The public
-`emkc.org` API sometimes requires a key; for reliable local use, self-host
-Piston:
+The browser only calls CodeSync's own `POST /api/execute`. The Express backend
+then calls a **Piston-compatible runner** and returns the result. The runner URL
+and optional API key stay on the server and are never sent to the browser.
+
+### Why the 401 happened
+
+Until 2026-02-15, `https://emkc.org/api/v2/piston` was free to use. It is now
+whitelist-only, so unauthenticated requests receive
+`401 - Public Piston API is now whitelist only as of 2/15/2026.` CodeSync no
+longer defaults to that endpoint; `PISTON_API_URL` must point at your own (or
+otherwise authorised) runner.
+
+### Self-hosted Piston runner
+
+Prerequisites: Docker with Compose, and cgroup v2 enabled on Linux hosts.
+
+From the repository root:
+
+```powershell
+docker compose -f docker-compose.piston.yml up -d
+```
+
+Or with plain Docker:
 
 ```bash
-docker run -d --name piston -p 2000:2000 --privileged \
-  ghcr.io/engineer-man/piston
+docker volume create piston_data
+docker run -d --name piston --privileged -p 2000:2000 -v piston_data:/piston ghcr.io/engineer-man/piston
 ```
 
-Then set in `server/.env`:
+A fresh Piston container has **no language runtimes installed**. Install the
+ones CodeSync supports (PowerShell commands shown):
 
+```powershell
+$r = 'http://localhost:2000/api/v2'
+Invoke-RestMethod -Method Post -Uri "$r/packages" -ContentType 'application/json' -Body '{"language":"python","version":"3.12.0"}'
+Invoke-RestMethod -Method Post -Uri "$r/packages" -ContentType 'application/json' -Body '{"language":"java","version":"15.0.2"}'
+Invoke-RestMethod -Method Post -Uri "$r/packages" -ContentType 'application/json' -Body '{"language":"gcc","version":"10.2.0"}'
+Invoke-RestMethod -Method Post -Uri "$r/packages" -ContentType 'application/json' -Body '{"language":"javascript","version":"20.11.1"}'
+Invoke-RestMethod -Method Post -Uri "$r/packages" -ContentType 'application/json' -Body '{"language":"typescript","version":"5.0.3"}'
 ```
-PISTON_URL=http://localhost:2000
-# or, if using the hosted API:
-# PISTON_URL=https://emkc.org/api/v2/piston
+
+Verify with `Invoke-RestMethod http://localhost:2000/api/v2/runtimes` (or open
+that URL in a browser). The `gcc` package provides both `c` and `c++`.
+
+Then set `server/.env` and restart the backend:
+
+```dotenv
+PISTON_API_URL=http://localhost:2000/api/v2
+PISTON_TIMEOUT_MS=15000
+# Only if your private runner requires a token:
 # PISTON_API_KEY=your-key
 ```
 
+A full endpoint URL such as `.../api/v2/execute` is accepted too. On Render,
+set `PISTON_API_URL` to a publicly reachable runner URL (the blueprint prompts
+for it); `localhost` there would mean the Render container itself.
+
+If the runner is down, unconfigured or rejects the request, the output console
+shows a clear message (for example "Code execution service is unavailable" or
+"Code runner authentication failed") instead of crashing. Details are logged
+server-side only.
+
+### Testing Java, Python and C++
+
+Open a room, select the language in the editor and click **▶ Run**. Tick
+**stdin** first for programs that read input.
+
+| Language | Code | stdin | Expected output |
+| -------- | ---- | ----- | --------------- |
+| Python | `name = input("Name: ")\nprint("Hello,", name)` | `Ada` | `Name: Hello, Ada` |
+| Java | `import java.util.Scanner; public class Main { public static void main(String[] a) { System.out.println("Sum=" + (2 + 3)); System.out.println("In=" + new Scanner(System.in).nextLine()); } }` | `hi` | `Sum=5` then `In=hi` |
+| C++ | `#include <iostream>\nint main(){int a,b; std::cin>>a>>b; std::cout<<"Sum="<<a+b<<"\n";}` | `2 3` | `Sum=5` |
+
+Java files are sent to Piston with a filename matching the `public class`, so
+compilation errors show up in the output console.
+
 ### Local runner (development only)
 
-When Piston is unreachable, the backend can run code as a child process of
-itself. This is convenient for demos but **unsandboxed**, so it is disabled
-automatically when `NODE_ENV=production` (override with `ALLOW_LOCAL_EXEC`):
+If the configured runner is unreachable, the backend can run code as a child
+process of itself. This is convenient for demos but **unsandboxed**, so it is
+disabled automatically when `NODE_ENV=production` (override with
+`ALLOW_LOCAL_EXEC`):
 
 | Language   | Needs on PATH                       |
 | ---------- | ----------------------------------- |
@@ -255,7 +314,7 @@ CORS. For a custom domain, also set `CLIENT_ORIGIN` to that exact origin.
   `AUTH_RATE_LIMIT_MAX` and `EXECUTE_RATE_LIMIT_MAX`; use Redis/an API gateway
   when running more than one server instance.
 - Keep local code execution OFF (`NODE_ENV=production` disables it by default)
-  and point `PISTON_URL` at an isolated runner.
+  and point `PISTON_API_URL` at an isolated runner.
 - Tighten `CLIENT_ORIGIN` to your real domains. CORS allows `DELETE` so room
   deletion works from the browser.
 - **Remaining for horizontal scale:** replace the in-memory `roomStore` with

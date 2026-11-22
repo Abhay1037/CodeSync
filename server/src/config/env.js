@@ -4,6 +4,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 /**
+ * Base URL for the Piston-compatible execution API. There is deliberately no
+ * public fallback: emkc.org is whitelist-only as of 2026-02-15.
+ *
+ * Accept both ".../api/v2" and ".../api/v2/execute" so a full endpoint URL
+ * copied from a provider still works with the `/execute` call in the runner.
+ */
+const pistonApiUrl = (process.env.PISTON_API_URL ?? '')
+  .trim()
+  .replace(/\/execute\/?$/, '')
+  .replace(/\/+$/, '');
+
+/**
  * Centralised, validated runtime configuration.
  * Importing this module guarantees the rest of the app reads a single
  * source of truth instead of scattering `process.env` lookups everywhere.
@@ -27,10 +39,11 @@ export const env = {
   ],
 
   /**
-   * Remote code-execution backend (Piston). Self-host with Docker later by
-   * pointing this at your own instance, e.g. http://localhost:2000.
+   * Remote code-execution backend. Required in production; set PISTON_API_URL
+   * to your self-hosted runner's v2 API base, e.g. http://localhost:2000/api/v2.
+   * The browser never sees this value or the optional API key below.
    */
-  pistonUrl: (process.env.PISTON_URL ?? 'https://emkc.org/api/v2/piston').replace(/\/$/, ''),
+  pistonApiUrl,
   pistonTimeoutMs: Number(process.env.PISTON_TIMEOUT_MS) || 10000,
   /** Optional bearer token for authenticated/self-hosted runners. */
   pistonApiKey: process.env.PISTON_API_KEY ?? '',

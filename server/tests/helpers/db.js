@@ -14,8 +14,9 @@ let memoryServer = null;
 export async function setupDB() {
   process.env.NODE_ENV = 'test';
   process.env.JWT_SECRET = 'codesync-test-secret';
-  process.env.ALLOW_LOCAL_EXEC = 'true';
-  process.env.PISTON_URL = 'http://127.0.0.1:9'; // deliberately unreachable
+  // Test files may override these before calling setupDB().
+  process.env.ALLOW_LOCAL_EXEC ??= 'true';
+  process.env.PISTON_API_URL ??= 'http://127.0.0.1:9/api/v2'; // deliberately unreachable
   process.env.PERSIST_DEBOUNCE_MS = '10';
 
   memoryServer = await MongoMemoryServer.create();

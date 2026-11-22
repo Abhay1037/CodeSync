@@ -24,9 +24,10 @@ services:
         generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
-      # Public Piston runner; apna self-hosted runner ho to yahan badlein.
-      - key: PISTON_URL
-        value: https://emkc.org/api/v2/piston
+      # Self-hosted / authorised Piston v2 API base, e.g. https://runner.example.com/api/v2
+      # Public emkc.org is whitelist-only and is deliberately not used.
+      - key: PISTON_API_URL
+        sync: false
       - key: PISTON_TIMEOUT_MS
         value: "10000"
       - key: ROOM_TTL_DAYS

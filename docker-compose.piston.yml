@@ -1,0 +1,16 @@
+# Optional local Piston v2 runner for CodeSync.
+# Start: docker compose -f docker-compose.piston.yml up -d
+# API:   http://localhost:2000/api/v2   (set this as PISTON_API_URL)
+services:
+  piston:
+    image: ghcr.io/engineer-man/piston
+    container_name: codesync-piston
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "2000:2000"
+    volumes:
+      - piston-packages:/piston
+
+volumes:
+  piston-packages:
