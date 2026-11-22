@@ -416,6 +416,14 @@ executeRouter.post('/execute', async (req, res, next) => {
 
     if (runnerError) {
       const timedOut = runnerError?.name === 'AbortError';
+      if (!timedOut) {
+        // Log the failure class only - never the configured URL or key.
+        console.error(
+          '[execute] runner unreachable',
+          runnerError?.name ?? 'Error',
+          runnerError?.cause?.code ?? ''
+        );
+      }
       const local = timedOut ? null : await tryLocalFallback();
       if (local) return res.json(local);
 
